@@ -1,0 +1,11 @@
+{
+  "name": "Tikhome",
+  "short_name": "Tikhome",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0E1411",
+  "theme_color": "#0E1411",
+  "icons": []
+}
