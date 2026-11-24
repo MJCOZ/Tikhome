@@ -1,5 +1,4 @@
 'use strict';
-const { h } = A;
 
 // ====== نشر إعلان: المالك ينشر بنفسه (فيديو أو صور) ======
 A.renderPublish = function renderPublish(app) {
@@ -41,7 +40,7 @@ A.renderPublish = function renderPublish(app) {
     for (const p of picked) {
       const mb = p.size / 1048576;
       if (f.media_type === 'video' && mb > A.config.max_video_mb) { A.toast(`الفيديو أكبر من ${A.config.max_video_mb} ميغابايت`); continue; }
-      if (f.media_type === 'photos' && mb > 8) { A.toast('إحدى الصور أكبر من 8 ميغابايت'); continue; }
+      if (f.media_type === 'photos' && mb > (A.config.max_photo_mb || 8)) { A.toast(`إحدى الصور أكبر من ${A.config.max_photo_mb || 8} ميغابايت`); continue; }
       files.push(p); previewUrls.push(URL.createObjectURL(p));
     }
     fileInput.value = ''; renderPreviews();
@@ -75,9 +74,8 @@ A.renderPublish = function renderPublish(app) {
     try {
       const body = { ...f, floor: f.floor === '' ? null : Number(f.floor) };
       const c = await A.api('/api/listings', { method: 'POST', body }); id = c.listing.id;
-      const fd = new FormData(); files.forEach((x) => fd.append('files', x, x.name));
       bar.style.display = 'block';
-      await A.api(`/api/listings/${id}/media`, { method: 'POST', form: fd, onProgress: (p) => (progress.style.width = Math.round(p * 100) + '%') });
+      await A.uploadFiles(id, files, (p) => (progress.style.width = Math.round(p * 100) + '%'));
       const r = await A.api(`/api/listings/${id}/submit`, { method: 'POST' });
       done(r.status);
     } catch (e) {

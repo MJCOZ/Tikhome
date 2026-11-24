@@ -1,5 +1,4 @@
 'use strict';
-const { h } = A;
 
 // ====== الخريطة مع موقع الشقة في المبنى (الدور + المدخل) ======
 A.buildingView = function buildingView(floor) {

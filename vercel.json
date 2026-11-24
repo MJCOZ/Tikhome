@@ -1,0 +1,28 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "",
+  "installCommand": "npm install",
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.js": { "includeFiles": "src/**", "maxDuration": 30 }
+  },
+  "crons": [
+    { "path": "/api/cron/sweep", "schedule": "17 3 * * *" }
+  ],
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index?__path=:path*" },
+    { "source": "/admin", "destination": "/admin.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "same-origin" },
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://*.tile.openstreetmap.org https://unpkg.com; media-src 'self' blob: https://*.supabase.co; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https://*.supabase.co; frame-ancestors 'none'" }
+      ]
+    }
+  ]
+}

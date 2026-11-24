@@ -46,21 +46,7 @@ A.icon = function icon(name) {
   return s;
 };
 
-A.api = async function api(path, { method = 'GET', body, form, onProgress } = {}) {
-  if (form && onProgress) {
-    return new Promise((resolve, reject) => {
-      const x = new XMLHttpRequest();
-      x.open(method, path);
-      x.setRequestHeader('X-Requested-With', 'fetch');
-      x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
-      x.onload = () => {
-        let data = {}; try { data = JSON.parse(x.responseText); } catch { /* */ }
-        x.status < 300 ? resolve(data) : reject(new Error(data.error || 'تعذّر الرفع'));
-      };
-      x.onerror = () => reject(new Error('تعذّر الاتصال بالخادم'));
-      x.send(form);
-    });
-  }
+A.api = async function api(path, { method = 'GET', body } = {}) {
   const opt = { method, headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' };
   if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
   let res;
@@ -68,6 +54,26 @@ A.api = async function api(path, { method = 'GET', body, form, onProgress } = {}
   let data = {}; try { data = await res.json(); } catch { /* */ }
   if (!res.ok) { const e = new Error(data.error || 'حدث خطأ'); e.status = res.status; throw e; }
   return data;
+};
+
+// رفع مباشر إلى التخزين: (1) رابط موقّع من الخادم (2) PUT للملف (3) تأكيد الملفات
+A.uploadFiles = async function uploadFiles(listingId, files, onProgress) {
+  const { uploads } = await A.api(`/api/listings/${listingId}/uploads`, { method: 'POST', body: { files: files.map((f) => ({ mime: f.type, size: f.size })) } });
+  const total = files.reduce((s, f) => s + f.size, 0) || 1; let done = 0;
+  for (let i = 0; i < uploads.length; i++) {
+    const u = uploads[i]; const f = files[i];
+    await new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open(u.method || 'PUT', u.upload_url);
+      for (const [k, v] of Object.entries(u.headers || {})) x.setRequestHeader(k, v);
+      x.upload.onprogress = (e) => e.lengthComputable && onProgress && onProgress((done + e.loaded) / total);
+      x.onload = () => (x.status < 300 ? resolve() : reject(new Error('تعذّر رفع الملف')));
+      x.onerror = () => reject(new Error('تعذّر الاتصال بخادم التخزين'));
+      x.send(f);
+    });
+    done += f.size;
+  }
+  return A.api(`/api/listings/${listingId}/media`, { method: 'POST', body: { paths: uploads.map((u) => u.path) } });
 };
 
 let toastTimer;
@@ -92,7 +98,7 @@ A.fmtPrice = (l) => Number(l.price).toLocaleString('ar-SA-u-nu-latn') + ' ر.س'
 A.floorLabel = (n) => (n == null ? '' : n === 0 ? 'الدور الأرضي' : ['', 'الدور الأول', 'الدور الثاني', 'الدور الثالث', 'الدور الرابع', 'الدور الخامس'][n] || 'الدور ' + n);
 A.entranceLabel = (e) => (e === 'private' ? 'مدخل خاص' : e === 'shared' ? 'مدخل مشترك' : '');
 A.kindLabel = (k) => (k === 'rent' ? 'إيجار' : 'بيع');
-A.statusLabel = (s) => ({ draft: 'مسودة', pending: 'قيد المراجعة', published: 'منشور', rejected: 'مرفوض', paused: 'موقوف', expired: 'الترخيص منتهٍ' }[s] || s);
+A.statusLabel = (s) => ({ draft: 'مسودة', pending: 'قيد المراجعة', published: 'منشور', rejected: 'مرفوض', paused: 'موقوف مؤقتاً', suspended: 'أوقفته الإدارة', expired: 'الترخيص منتهٍ' }[s] || s);
 
 A.field = function field(label, input) {
   return h('div', { class: 'field' }, h('label', {}, label), input);

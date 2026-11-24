@@ -66,7 +66,7 @@ a{color:var(--acc-soft)}
 .status{padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600;background:#F4F1EA20}
 .status.published{background:#1FB58F33;color:var(--acc-soft)}
 .status.pending{background:#F2C46D33;color:var(--gold)}
-.status.rejected,.status.expired{background:#E5534B33;color:#ffb4ae}
+.status.rejected,.status.expired,.status.suspended{background:#E5534B33;color:#ffb4ae}
 .err{color:#ffb4ae;font-size:13px;min-height:18px}
 
 /* النوافذ السفلية */

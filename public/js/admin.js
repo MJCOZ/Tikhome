@@ -1,5 +1,5 @@
 'use strict';
-const { h, api } = A;
+const { api } = A; // h معرّفة في core.js
 const root = document.getElementById('root');
 
 // ====== دخول المدير ======
@@ -40,7 +40,7 @@ const TABS = {
   listings: ['كل الإعلانات', async () => {
     const status = TABS.listings.status || '';
     const d = await api('/api/admin/listings' + (status ? '?status=' + status : ''));
-    const sel = h('select', { onchange: (e) => { TABS.listings.status = e.target.value; refresh(); } }, [['', 'الكل'], ['published', 'منشور'], ['pending', 'قيد المراجعة'], ['rejected', 'مرفوض'], ['paused', 'موقوف'], ['expired', 'منتهٍ']].map(([v, t]) => h('option', { value: v, selected: v === status }, t)));
+    const sel = h('select', { onchange: (e) => { TABS.listings.status = e.target.value; refresh(); } }, [['', 'الكل'], ['published', 'منشور'], ['pending', 'قيد المراجعة'], ['rejected', 'مرفوض'], ['paused', 'أوقفه المالك'], ['suspended', 'أوقفته الإدارة'], ['expired', 'منتهٍ']].map(([v, t]) => h('option', { value: v, selected: v === status }, t)));
     return h('div', {}, A.field('الحالة', sel), listingsTable(d.listings, false));
   }],
   users: ['المستخدمون', async () => {
@@ -98,7 +98,7 @@ function listingsTable(rows, review) {
     h('div', { class: 'thumbrow' }, l.media.map((m) => m.mime.startsWith('video/') ? h('video', { src: m.url, controls: true, preload: 'metadata', playsinline: true }) : h('img', { src: m.url, alt: '' }))),
     h('div', {}, h('span', { class: 'status ' + l.status }, A.statusLabel(l.status)), l.reject_reason ? h('div', { class: 'muted' }, l.reject_reason) : null, h('div', { class: 'muted' }, `مشاهدات ${l.views} · تواصل ${l.contacts}`)),
     h('div', { class: 'acts' },
-      ['pending', 'rejected', 'paused'].includes(l.status) ? btn('موافقة ونشر', () => post(`/api/admin/listings/${l.id}/approve`), '') : null,
+      ['pending', 'rejected', 'paused', 'suspended'].includes(l.status) ? btn(l.status === 'suspended' ? 'رفع الإيقاف ونشر' : 'موافقة ونشر', () => post(`/api/admin/listings/${l.id}/approve`), '') : null,
       l.status !== 'rejected' ? btn('رفض', async () => { const reason = prompt('سبب الرفض (يصل للمالك):'); if (reason !== null) await post(`/api/admin/listings/${l.id}/reject`, { reason }); }, 'danger') : null,
       l.status === 'published' ? btn('إيقاف', () => post(`/api/admin/listings/${l.id}/takedown`)) : null,
       l.status === 'published' ? btn(l.featured ? 'إلغاء التمييز' : 'تمييز 7 أيام', () => post(`/api/admin/listings/${l.id}/feature`, { days: l.featured ? 0 : 7 })) : null,

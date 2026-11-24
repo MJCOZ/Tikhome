@@ -1,11 +1,14 @@
 {
   "name": "tikhome",
-  "version": "1.0.0",
-  "description": "منصة عقارية بالفيديو القصير والصور: تطبيق ويب للجوال + خادم + لوحة تحكم",
+  "version": "1.1.0",
+  "description": "منصة عقارية بالفيديو القصير والصور: تطبيق جوال (Expo) + تطبيق ويب + واجهة API على Vercel + Supabase",
   "private": true,
-  "engines": { "node": ">=22.5" },
+  "engines": { "node": ">=20" },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning server.js",
-    "test": "node --disable-warning=ExperimentalWarning test/smoke.js"
+    "start": "node server.js",
+    "test": "node test/smoke.js"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
   }
 }

@@ -1,5 +1,4 @@
 'use strict';
-const { h } = A;
 
 // ====== الدخول والتسجيل ======
 A.renderLogin = function renderLogin(app) {
@@ -49,6 +48,8 @@ function myCard(l, reload) {
     h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('b', {}, `${l.title} · ${l.district}`), h('span', { class: 'status ' + l.status }, A.statusLabel(l.status))),
     h('div', { class: 'row' }, thumb, h('div', { class: 'muted' }, A.fmtPrice(l), h('br'), `المشاهدات: ${l.views ?? 0} · طلبات التواصل: ${l.contacts ?? 0}`, h('br'), `ينتهي الترخيص: ${l.license_expires}`)),
     l.status === 'rejected' && l.reject_reason ? h('div', { class: 'err' }, 'سبب الرفض: ' + l.reject_reason) : null,
+    l.status === 'suspended' ? h('div', { class: 'err' }, 'أوقفت الإدارة هذا الإعلان. تواصل مع الدعم لمعرفة السبب.') : null,
+    l.status === 'draft' && !l.media.length ? h('div', { class: 'muted' }, 'الإعلان بلا فيديو أو صور. احذفه وأنشئ إعلاناً جديداً، أو أكمل الرفع من التطبيق.') : null,
     h('div', { class: 'row' },
       ['draft', 'rejected', 'paused'].includes(l.status) && l.media.length ? h('button', { class: 'btn sm', onclick: () => act(`/api/listings/${l.id}/${l.status === 'paused' ? 'resume' : 'submit'}`) }, l.status === 'paused' ? 'استئناف' : 'إرسال للمراجعة') : null,
       l.status === 'published' ? h('button', { class: 'btn sec sm', onclick: () => act(`/api/listings/${l.id}/pause`) }, 'إيقاف مؤقت') : null,

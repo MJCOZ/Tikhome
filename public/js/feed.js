@@ -1,5 +1,4 @@
 'use strict';
-const { h } = A;
 
 // ====== الفلاتر ======
 A.filterCount = () => Object.values(A.filters).filter((v) => v !== '' && v != null).length;
