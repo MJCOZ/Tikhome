@@ -41,11 +41,11 @@ export default function Saved() {
       refreshControl={<RefreshControl refreshing={refreshing} tintColor={C.acc} onRefresh={() => { setRefreshing(true); load(); }} />}>
       <T style={s.h1}>المحفوظات</T>
       {listings.length ? listings.map((l) => {
-        const thumb = l.media_type === 'photos' ? l.media[0] : null;
+        const thumb = l.media_type === 'photos' ? l.media[0]?.url : l.media[0]?.poster;
         return (
           <Pressable key={l.id} onPress={() => router.push(`/listing/${l.id}`)}>
             <Card style={{ ...row, alignItems: 'center' }}>
-              {thumb ? <Image source={{ uri: mediaUrl(thumb.url) }} style={{ width: 64, height: 84, borderRadius: 10 }} contentFit="cover" />
+              {thumb ? <Image source={{ uri: mediaUrl(thumb) }} style={{ width: 64, height: 84, borderRadius: 10 }} contentFit="cover" />
                 : <View style={{ width: 64, height: 84, borderRadius: 10, backgroundColor: C.panel2 }} />}
               <View style={{ flex: 1, gap: 3 }}>
                 <T style={{ fontWeight: '700' }} numberOfLines={1}>{`${l.title} · ${l.district}`}</T>

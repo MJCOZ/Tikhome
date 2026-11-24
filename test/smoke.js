@@ -111,6 +111,29 @@ async function upload(who, id, buf, mime) {
 
     r = await call('admin', 'GET', '/api/admin/stats'); assert.equal(r.data.users, 2); ok('إحصائيات');
 
+    // فيديو مع صورة مصغّرة
+    r = await call('owner', 'POST', '/api/listings', { kind: 'sale', title: 'فيلا بفيديو', city: 'جدة', district: 'الشاطئ', price: 2500000, media_type: 'video', license_no: '7100099999', license_expires: exp });
+    const vid = r.data.listing.id;
+    const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypmp42'), Buffer.alloc(200)]);
+    r = await call('owner', 'POST', `/api/listings/${vid}/uploads`, { files: [{ mime: 'video/mp4', size: mp4.length }, { mime: 'image/png', size: png.length, role: 'poster' }] });
+    assert.equal(r.status, 200, JSON.stringify(r.data)); assert.ok(r.data.poster && r.data.uploads.length === 1);
+    await fetch(base + r.data.uploads[0].upload_url, { method: 'PUT', headers: r.data.uploads[0].headers, body: mp4 });
+    await fetch(base + r.data.poster.upload_url, { method: 'PUT', headers: r.data.poster.headers, body: png });
+    r = await call('owner', 'POST', `/api/listings/${vid}/media`, { paths: [r.data.uploads[0].path], poster: r.data.poster.path });
+    assert.equal(r.status, 201, JSON.stringify(r.data)); assert.ok(r.data.media[0].poster); ok('رفع فيديو مع صورة مصغّرة');
+    assert.equal((await fetch(base + r.data.media[0].poster)).status, 200);
+    r = await call('owner', 'POST', `/api/listings/${id}/uploads`, { files: [{ mime: 'image/png', size: 10, role: 'poster' }] });
+    assert.equal(r.status, 400); ok('الصورة المصغّرة مرفوضة لإعلان الصور');
+    r = await call('owner', 'POST', `/api/listings/${vid}/uploads`, { files: [{ mime: 'image/png', size: png.length, role: 'poster' }] });
+    await fetch(base + r.data.poster.upload_url, { method: 'PUT', headers: r.data.poster.headers, body: Buffer.from('not an image at all') });
+    r = await call('owner', 'POST', `/api/listings/${vid}/media`, { poster: r.data.poster.path });
+    assert.equal(r.status, 400); ok('رفض صورة مصغّرة مزيّفة');
+    r = await call('owner', 'POST', `/api/listings/${vid}/uploads`, { files: [{ mime: 'image/png', size: png.length, role: 'poster' }] });
+    await fetch(base + r.data.poster.upload_url, { method: 'PUT', headers: r.data.poster.headers, body: png });
+    const newPoster = r.data.poster.path;
+    r = await call('owner', 'POST', `/api/listings/${vid}/media`, { poster: newPoster });
+    assert.equal(r.status, 201); assert.ok(r.data.media[0].poster.endsWith(newPoster)); ok('استبدال الصورة المصغّرة لفيديو موجود');
+
     // استعادة كلمة السر برمز يصدره المدير
     r = await call('owner', 'POST', '/api/admin/users/1/reset-code'); assert.equal(r.status, 403);
     const owner = (await call('admin', 'GET', '/api/admin/users')).data.users.find((u) => u.phone === '0555555551');

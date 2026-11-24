@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import type { PickedFile } from './api';
 
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'video/quicktime'];
@@ -11,6 +12,17 @@ function toFile(a: ImagePicker.ImagePickerAsset): PickedFile {
   return { uri: a.uri, mime, size: a.fileSize || 0 };
 }
 
+// صورة مصغّرة من الثانية الأولى تظهر في الخلاصة قبل تحميل الفيديو
+async function makePoster(uri: string): Promise<PickedFile | undefined> {
+  try {
+    const t = await VideoThumbnails.getThumbnailAsync(uri, { time: 1000, quality: 0.6 })
+      .catch(() => VideoThumbnails.getThumbnailAsync(uri, { time: 0, quality: 0.6 })); // فيديو أقصر من ثانية
+    const size = (await (await fetch(t.uri)).blob()).size;
+    if (!size || size > 1024 * 1024) return undefined;
+    return { uri: t.uri, mime: 'image/jpeg', size };
+  } catch { return undefined; }
+}
+
 export type PickResult = { files: PickedFile[]; error?: string };
 
 // اختيار فيديو واحد أو عدة صور، مع التحقق من النوع والحجم قبل الرفع
@@ -18,7 +30,12 @@ export async function pickMedia(kind: 'video' | 'photos', { limit = 12, maxVideo
   const perm = camera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!perm.granted) return { files: [], error: camera ? 'نحتاج إذن الكاميرا لتصوير العقار' : 'نحتاج إذن الوصول للصور لاختيار ملفات العقار' };
   const opts: ImagePicker.ImagePickerOptions = kind === 'video'
-    ? { mediaTypes: ['videos'], videoMaxDuration: 90, allowsEditing: false }
+    ? {
+      mediaTypes: ['videos'], videoMaxDuration: 90, allowsEditing: false,
+      // ضغط الفيديو على iOS إلى 720p قبل الرفع (أندرويد يرفع الملف كما هو في Expo Go)
+      videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
+      videoQuality: ImagePicker.UIImagePickerControllerQualityType.IFrame1280x720,
+    }
     : { mediaTypes: ['images'], allowsMultipleSelection: !camera, selectionLimit: limit, quality: 0.8 };
   const r = camera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
   if (r.canceled) return { files: [] };
@@ -29,6 +46,7 @@ export async function pickMedia(kind: 'video' | 'photos', { limit = 12, maxVideo
     if (!ALLOWED.includes(f.mime)) { error = 'نوع الملف غير مدعوم (' + (f.mime || 'غير معروف') + ')'; continue; }
     if (kind === 'video' && mb > maxVideoMb) { error = `الفيديو أكبر من ${maxVideoMb} ميغابايت. صوّر مقطعاً أقصر.`; continue; }
     if (kind === 'photos' && mb > maxPhotoMb) { error = `إحدى الصور أكبر من ${maxPhotoMb} ميغابايت`; continue; }
+    if (kind === 'video') f.poster = await makePoster(f.uri);
     files.push(f);
   }
   return { files, error };

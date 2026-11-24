@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { FlatList, Linking, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEvent } from 'expo';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { api, API_URL, Listing, mediaUrl } from '../lib/api';
@@ -12,16 +13,25 @@ import { C, row } from '../lib/theme';
 import { Sheet } from './Sheet';
 import { Btn, Input, T, toast, s as ui } from './ui';
 
-function VideoMedia({ url, active }: { url: string; active: boolean }) {
+function Poster({ uri }: { uri?: string | null }) {
+  return uri ? <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={100} /> : null;
+}
+
+function VideoMedia({ url, poster, active }: { url: string; poster?: string | null; active: boolean }) {
   const [muted, setMuted] = useState(true);
   const [paused, setPaused] = useState(false);
+  const [started, setStarted] = useState(false);
   const player = useVideoPlayer(url, (p) => { p.loop = true; p.muted = true; });
+  const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
+  useEffect(() => { if (isPlaying) setStarted(true); }, [isPlaying]);
   useEffect(() => { if (active && !paused) player.play(); else player.pause(); }, [active, paused, player]);
   useEffect(() => { player.muted = muted; }, [muted, player]);
   return (
     <>
       <Pressable style={StyleSheet.absoluteFill} onPress={() => setPaused((p) => !p)} accessibilityLabel="تشغيل أو إيقاف الفيديو">
         <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
+        {/* الصورة المصغّرة فوق الفيديو حتى يبدأ التشغيل */}
+        {!started ? <Poster uri={poster} /> : null}
         {paused ? <View style={st.playHint}><Ionicons name="play" size={34} color="#fff" /></View> : null}
       </Pressable>
       <Pressable style={[st.round, st.soundBtn]} onPress={() => setMuted((m) => !m)} accessibilityLabel={muted ? 'تشغيل الصوت' : 'كتم الصوت'}>
@@ -84,7 +94,8 @@ export function ListingItem({ l, width, height, active, mountMedia = true, onCha
 
   return (
     <View style={{ width, height, backgroundColor: '#000' }}>
-      {!mountMedia ? null : video ? <VideoMedia url={mediaUrl(video.url)} active={active} />
+      {!mountMedia ? (video ? <Poster uri={video.poster && mediaUrl(video.poster)} /> : null)
+        : video ? <VideoMedia url={mediaUrl(video.url)} poster={video.poster && mediaUrl(video.poster)} active={active} />
         : l.media.length ? <PhotoMedia urls={l.media.map((m) => mediaUrl(m.url))} width={width} height={height} />
           : <View style={[StyleSheet.absoluteFill, { backgroundColor: C.panel2 }]} />}
       <View style={st.shade} pointerEvents="none" />

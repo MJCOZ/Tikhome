@@ -41,26 +41,34 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
 // روابط الوسائط قد تكون نسبية في التطوير المحلي
 export const mediaUrl = (u: string) => (/^https?:/.test(u) ? u : API_URL + u);
 
-export type PickedFile = { uri: string; mime: string; size: number };
+export type PickedFile = { uri: string; mime: string; size: number; poster?: PickedFile };
 
 // الرفع: (1) رابط موقّع من الخادم (2) رفع الملف مباشرة للتخزين (3) تأكيد الملفات
 export async function uploadMedia(listingId: number, files: PickedFile[], onProgress?: (done: number, total: number) => void) {
-  const { uploads } = await api<{ uploads: { path: string; upload_url: string; method: string; headers: Record<string, string> }[] }>(
-    `/api/listings/${listingId}/uploads`, { method: 'POST', body: { files: files.map((f) => ({ mime: f.mime, size: f.size })) } });
-  for (let i = 0; i < uploads.length; i++) {
-    onProgress?.(i, uploads.length);
-    const u = uploads[i];
-    const blob = await (await fetch(files[i].uri)).blob();
+  type Signed = { path: string; upload_url: string; method: string; headers: Record<string, string> };
+  const poster = files.length === 1 ? files[0].poster : undefined;
+  const req = files.map((f) => ({ mime: f.mime, size: f.size }));
+  const { uploads, poster: posterUp } = await api<{ uploads: Signed[]; poster: Signed | null }>(
+    `/api/listings/${listingId}/uploads`, { method: 'POST', body: { files: poster ? [...req, { mime: poster.mime, size: poster.size, role: 'poster' }] : req } });
+  const put = async (u: Signed, uri: string) => {
+    const blob = await (await fetch(uri)).blob();
     const url = /^https?:/.test(u.upload_url) ? u.upload_url : API_URL + u.upload_url;
     let r: Response;
     try { r = await fetch(url, { method: u.method || 'PUT', headers: u.headers, body: blob }); } catch { throw new ApiError('انقطع الاتصال أثناء رفع الملف', 0); }
     if (!r.ok) throw new ApiError('تعذّر رفع الملف (' + r.status + ')', r.status);
+  };
+  for (let i = 0; i < uploads.length; i++) {
+    onProgress?.(i, uploads.length);
+    await put(uploads[i], files[i].uri);
   }
+  // الصورة المصغّرة اختيارية: فشلها لا يوقف نشر الإعلان
+  let posterPath: string | undefined;
+  if (posterUp && poster) { try { await put(posterUp, poster.uri); posterPath = posterUp.path; } catch { /* */ } }
   onProgress?.(uploads.length, uploads.length);
-  return api<{ media: Media[]; status: string }>(`/api/listings/${listingId}/media`, { method: 'POST', body: { paths: uploads.map((u) => u.path) } });
+  return api<{ media: Media[]; status: string }>(`/api/listings/${listingId}/media`, { method: 'POST', body: { paths: uploads.map((u) => u.path), poster: posterPath } });
 }
 
-export type Media = { id: number; url: string; mime: string };
+export type Media = { id: number; url: string; mime: string; poster?: string | null };
 export type Listing = {
   id: number; kind: 'rent' | 'sale'; property_type: string; title: string; city: string; district: string;
   price: number; area: number | null; beds: number | null; baths: number | null; floor: number | null; entrance: string | null;

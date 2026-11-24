@@ -29,7 +29,7 @@ function MyCard({ l, reload }: { l: Listing; reload: () => void }) {
     try { setBusy('جارٍ الرفع...'); await uploadMedia(l.id, r.files); reload(); } catch (e: any) { toast(e.message); }
     setBusy('');
   };
-  const thumb = l.media_type === 'photos' ? l.media[0] : null;
+  const thumb = l.media_type === 'photos' ? l.media[0]?.url : l.media[0]?.poster;
   const canSubmit = ['draft', 'rejected', 'paused'].includes(l.status) && l.media.length > 0;
   return (
     <Card>
@@ -38,7 +38,7 @@ function MyCard({ l, reload }: { l: Listing; reload: () => void }) {
         <T style={{ color: statusColor(l.status), fontWeight: '700', fontSize: 12 }}>{statusLabel(l.status)}</T>
       </View>
       <View style={[row, { gap: 10 }]}>
-        {thumb ? <Image source={{ uri: mediaUrl(thumb.url) }} style={{ width: 64, height: 84, borderRadius: 10 }} contentFit="cover" /> : null}
+        {thumb ? <Image source={{ uri: mediaUrl(thumb) }} style={{ width: 64, height: 84, borderRadius: 10 }} contentFit="cover" /> : null}
         <T style={[s.muted, { flex: 1, lineHeight: 20 }]}>{`${fmtPrice(l)}\nالمشاهدات: ${l.views ?? 0} · طلبات التواصل: ${l.contacts ?? 0}\nينتهي الترخيص: ${l.license_expires}`}</T>
       </View>
       {l.status === 'rejected' && l.reject_reason ? <T style={{ color: '#ffb4ae' }}>{'سبب الرفض: ' + l.reject_reason}</T> : null}

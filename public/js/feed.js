@@ -80,7 +80,7 @@ A.buildItem = function buildItem(l, { observe } = {}) {
   const el = h('section', { class: 'item', 'data-id': l.id, 'aria-label': `${l.title} ${l.district}` });
   let video = null;
   if (l.media_type === 'video' && l.media[0]) {
-    video = h('video', { src: l.media[0].url, loop: true, muted: true, playsinline: true, preload: 'metadata', 'aria-label': 'فيديو العقار' });
+    video = h('video', { src: l.media[0].url, poster: l.media[0].poster || null, loop: true, muted: true, playsinline: true, preload: 'metadata', 'aria-label': 'فيديو العقار' });
     video.muted = true;
     const hint = h('div', { class: 'playhint' }, A.icon('play'));
     hint.firstChild.style.cssText = 'width:32px;height:32px;fill:#fff';

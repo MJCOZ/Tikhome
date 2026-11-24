@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS media (
   position INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_media_listing ON media(listing_id);
+-- صورة مصغّرة للفيديو تظهر فوراً قبل تحميله
+ALTER TABLE media ADD COLUMN IF NOT EXISTS poster TEXT;
 
 CREATE TABLE IF NOT EXISTS saves (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

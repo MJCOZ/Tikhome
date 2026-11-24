@@ -75,7 +75,8 @@ A.renderPublish = function renderPublish(app) {
       const body = { ...f, floor: f.floor === '' ? null : Number(f.floor) };
       const c = await A.api('/api/listings', { method: 'POST', body }); id = c.listing.id;
       bar.style.display = 'block';
-      await A.uploadFiles(id, files, (p) => (progress.style.width = Math.round(p * 100) + '%'));
+      const poster = f.media_type === 'video' ? await A.videoPoster(files[0]) : null;
+      await A.uploadFiles(id, files, (p) => (progress.style.width = Math.round(p * 100) + '%'), poster);
       const r = await A.api(`/api/listings/${id}/submit`, { method: 'POST' });
       done(r.status);
     } catch (e) {

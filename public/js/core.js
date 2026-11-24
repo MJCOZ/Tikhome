@@ -57,9 +57,19 @@ A.api = async function api(path, { method = 'GET', body } = {}) {
 };
 
 // رفع مباشر إلى التخزين: (1) رابط موقّع من الخادم (2) PUT للملف (3) تأكيد الملفات
-A.uploadFiles = async function uploadFiles(listingId, files, onProgress) {
-  const { uploads } = await A.api(`/api/listings/${listingId}/uploads`, { method: 'POST', body: { files: files.map((f) => ({ mime: f.type, size: f.size })) } });
+A.uploadFiles = async function uploadFiles(listingId, files, onProgress, poster = null) {
+  const req = files.map((f) => ({ mime: f.type, size: f.size }));
+  if (poster) req.push({ mime: poster.type, size: poster.size, role: 'poster' });
+  const { uploads, poster: posterUp } = await A.api(`/api/listings/${listingId}/uploads`, { method: 'POST', body: { files: req } });
   const total = files.reduce((s, f) => s + f.size, 0) || 1; let done = 0;
+  const put = (u, f) => new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open(u.method || 'PUT', u.upload_url);
+    for (const [k, v] of Object.entries(u.headers || {})) x.setRequestHeader(k, v);
+    x.onload = () => (x.status < 300 ? resolve() : reject(new Error('تعذّر رفع الملف')));
+    x.onerror = () => reject(new Error('تعذّر الاتصال بخادم التخزين'));
+    x.send(f);
+  });
   for (let i = 0; i < uploads.length; i++) {
     const u = uploads[i]; const f = files[i];
     await new Promise((resolve, reject) => {
@@ -73,7 +83,31 @@ A.uploadFiles = async function uploadFiles(listingId, files, onProgress) {
     });
     done += f.size;
   }
-  return A.api(`/api/listings/${listingId}/media`, { method: 'POST', body: { paths: uploads.map((u) => u.path) } });
+  // الصورة المصغّرة اختيارية: فشلها لا يوقف نشر الإعلان
+  let posterPath;
+  if (posterUp && poster) { try { await put(posterUp, poster); posterPath = posterUp.path; } catch { /* */ } }
+  return A.api(`/api/listings/${listingId}/media`, { method: 'POST', body: { paths: uploads.map((u) => u.path), poster: posterPath } });
+};
+
+// صورة مصغّرة من الثانية الأولى للفيديو (تُرسم في المتصفح)
+A.videoPoster = function videoPoster(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file); let finished = false;
+    const done = (b) => { if (finished) return; finished = true; URL.revokeObjectURL(url); resolve(b); };
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
+    v.onloadedmetadata = () => { v.currentTime = Math.min(1, (v.duration || 0) / 2); };
+    v.onseeked = () => {
+      try {
+        const w = Math.min(720, v.videoWidth || 720); const hh = Math.round((v.videoHeight || 1280) * w / (v.videoWidth || 720));
+        const c = document.createElement('canvas'); c.width = w; c.height = hh;
+        c.getContext('2d').drawImage(v, 0, 0, w, hh);
+        c.toBlob((b) => done(b && b.size <= 1048576 ? b : null), 'image/jpeg', 0.7);
+      } catch { done(null); }
+    };
+    v.onerror = () => done(null);
+    setTimeout(() => done(null), 10000);
+  });
 };
 
 let toastTimer;

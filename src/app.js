@@ -7,6 +7,8 @@ const SESSION_DAYS = 30;
 const EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov' };
 const MIME_BY_EXT = Object.fromEntries(Object.entries(EXT).map(([m, e]) => [e, m]));
 const MAX_PHOTO_MB = 8;
+const MAX_POSTER_BYTES = 1024 * 1024;
+const POSTER_MIME = ['image/jpeg', 'image/png', 'image/webp'];
 
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const bad = (m) => new HttpError(400, m);
@@ -88,7 +90,7 @@ function createApp({ db, storage }) {
     const ownerIds = [...new Set(rows.map((l) => l.owner_id))];
     const [owners, media, saves, contacts] = await Promise.all([
       db.all('SELECT id, name, verified FROM users WHERE id = ANY(?)', ownerIds),
-      db.all('SELECT id, listing_id, file, mime FROM media WHERE listing_id = ANY(?) ORDER BY position, id', ids),
+      db.all('SELECT id, listing_id, file, mime, poster FROM media WHERE listing_id = ANY(?) ORDER BY position, id', ids),
       user ? db.all('SELECT listing_id FROM saves WHERE user_id = ? AND listing_id = ANY(?)', user.id, ids) : [],
       owner ? db.all('SELECT listing_id, COUNT(*)::int AS n FROM contacts WHERE listing_id = ANY(?) GROUP BY listing_id', ids) : []
     ]);
@@ -98,7 +100,7 @@ function createApp({ db, storage }) {
     const mediaMap = new Map();
     for (const m of media) {
       if (!mediaMap.has(m.listing_id)) mediaMap.set(m.listing_id, []);
-      mediaMap.get(m.listing_id).push({ id: m.id, url: storage.publicUrl(m.file), mime: m.mime });
+      mediaMap.get(m.listing_id).push({ id: m.id, url: storage.publicUrl(m.file), mime: m.mime, poster: m.poster ? storage.publicUrl(m.poster) : null });
     }
     const t = today();
     return rows.map((l) => {
@@ -409,7 +411,7 @@ function createApp({ db, storage }) {
   });
   route('DELETE', '/api/listings/:id', 'user', async (ctx) => {
     const l = await ownerListing(ctx.user, ctx.params.id);
-    const files = (await db.all('SELECT file FROM media WHERE listing_id = ?', l.id)).map((m) => m.file);
+    const files = (await db.all('SELECT file, poster FROM media WHERE listing_id = ?', l.id)).flatMap((m) => [m.file, m.poster].filter(Boolean));
     await db.run('DELETE FROM listings WHERE id = ?', l.id);
     await storage.remove(files);
     if (ctx.user.role === 'admin' && l.owner_id !== ctx.user.id) await audit(ctx.user.id, 'delete_listing', l.id);
@@ -464,10 +466,13 @@ function createApp({ db, storage }) {
   route('POST', '/api/listings/:id/uploads', 'user', async (ctx) => {
     const l = await ownerListing(ctx.user, ctx.params.id);
     if (l.status === 'suspended' && ctx.user.role !== 'admin') throw new HttpError(403, 'أوقفت الإدارة هذا الإعلان');
-    const files = Array.isArray(ctx.body.files) ? ctx.body.files.slice(0, 20) : [];
-    if (!files.length) throw bad('لم تحدد أي ملف');
+    const all = Array.isArray(ctx.body.files) ? ctx.body.files.slice(0, 21) : [];
+    const files = all.filter((f) => f && f.role !== 'poster');
+    const posters = all.filter((f) => f && f.role === 'poster');
+    if (!all.length) throw bad('لم تحدد أي ملف');
+    if (posters.length > 1 || (posters.length && l.media_type !== 'video')) throw bad('الصورة المصغّرة للفيديو فقط');
     const { maxVideo, maxPhotos, maxVideoMb } = await mediaLimits();
-    checkCount(l, (await mediaCount(l.id)) + files.length, maxPhotos);
+    if (files.length) checkCount(l, (await mediaCount(l.id)) + files.length, maxPhotos);
     await throttle('upload:' + ctx.user.id, 60, 60 * 60 * 1000);
     await storage.ready();
     const uploads = [];
@@ -481,13 +486,24 @@ function createApp({ db, storage }) {
       const s = await storage.signUpload(p);
       uploads.push({ path: p, upload_url: s.upload_url, method: s.method, headers: { 'Content-Type': mime } });
     }
-    ctx.json(200, { uploads });
+    let poster = null;
+    if (posters.length) {
+      const mime = String(posters[0].mime || '').toLowerCase();
+      if (!POSTER_MIME.includes(mime)) throw bad('نوع الصورة المصغّرة غير مسموح');
+      if ((Number(posters[0].size) || 0) > MAX_POSTER_BYTES) throw bad('الصورة المصغّرة أكبر من 1 ميغابايت');
+      const p = `l${l.id}/${crypto.randomBytes(16).toString('hex')}${EXT[mime]}`;
+      const s = await storage.signUpload(p);
+      poster = { path: p, upload_url: s.upload_url, method: s.method, headers: { 'Content-Type': mime } };
+    }
+    ctx.json(200, { uploads, poster });
   });
   route('POST', '/api/listings/:id/media', 'user', async (ctx) => {
     const l = await ownerListing(ctx.user, ctx.params.id);
     if (l.status === 'suspended' && ctx.user.role !== 'admin') throw new HttpError(403, 'أوقفت الإدارة هذا الإعلان');
     const paths = [...new Set(Array.isArray(ctx.body.paths) ? ctx.body.paths.map(String) : [])].slice(0, 20);
-    if (!paths.length) throw bad('لم يصل أي ملف');
+    const posterPath = ctx.body.poster ? String(ctx.body.poster) : null;
+    if (!paths.length && !posterPath) throw bad('لم يصل أي ملف');
+    if (posterPath && l.media_type !== 'video') throw bad('الصورة المصغّرة للفيديو فقط');
     const { maxVideo, maxPhotos, maxVideoMb } = await mediaLimits();
     const existing = await mediaCount(l.id);
     const re = new RegExp(`^l${l.id}/[0-9a-f]{32}(\\.jpg|\\.png|\\.webp|\\.mp4|\\.webm|\\.mov)$`);
@@ -507,12 +523,28 @@ function createApp({ db, storage }) {
         okFiles.push({ p, mime });
       }
       checkCount(l, existing + okFiles.length, maxPhotos);
+      if (posterPath) {
+        const m = new RegExp(`^l${l.id}/[0-9a-f]{32}(\\.jpg|\\.png|\\.webp)$`).exec(posterPath);
+        if (!m) throw bad('مسار الصورة المصغّرة غير صالح');
+        if (await db.one('SELECT 1 FROM media WHERE file = ? OR poster = ?', posterPath, posterPath)) throw bad('الملف مضاف مسبقاً');
+        const info = await storage.head(posterPath);
+        if (!info) throw bad('لم يكتمل رفع الصورة المصغّرة');
+        if (info.size > MAX_POSTER_BYTES) throw bad('الصورة المصغّرة أكبر من 1 ميغابايت');
+        if (!magicOk(MIME_BY_EXT[m[1]], info.head)) throw bad('محتوى الصورة المصغّرة لا يطابق نوعها');
+        if (!okFiles.length && existing !== 1) throw bad('ارفع الفيديو أولاً');
+      }
     } catch (e) {
-      await storage.remove(paths.filter((p) => /^l\d+\//.test(p) && p.startsWith(`l${l.id}/`)));
+      await storage.remove([...paths, posterPath].filter((p) => p && p.startsWith(`l${l.id}/`)));
       throw e;
     }
     let pos = existing;
-    for (const { p, mime } of okFiles) await db.run('INSERT INTO media (listing_id, file, mime, position) VALUES (?, ?, ?, ?)', l.id, p, mime, pos++);
+    for (const { p, mime } of okFiles) await db.run('INSERT INTO media (listing_id, file, mime, position, poster) VALUES (?, ?, ?, ?, ?)', l.id, p, mime, pos++, posterPath);
+    if (posterPath && !okFiles.length) {
+      // إضافة صورة مصغّرة لفيديو موجود: نستبدل القديمة
+      const old = await db.one('SELECT id, poster FROM media WHERE listing_id = ?', l.id);
+      await db.run('UPDATE media SET poster = ? WHERE id = ?', posterPath, old.id);
+      if (old.poster) await storage.remove([old.poster]);
+    }
     // تغيير وسائط إعلان منشور يعيده للمراجعة
     let status = l.status;
     if (l.status === 'published' && ctx.user.role !== 'admin' && (await db.getSetting('require_review')) === '1') {
@@ -527,7 +559,7 @@ function createApp({ db, storage }) {
     if (!m) throw new HttpError(404, 'غير موجود');
     const l = await ownerListing(ctx.user, m.listing_id);
     await db.run('DELETE FROM media WHERE id = ?', m.id);
-    await storage.remove([m.file]);
+    await storage.remove([m.file, m.poster].filter(Boolean));
     // إعلان بلا وسائط لا يبقى منشوراً
     let status = l.status;
     if ((await mediaCount(l.id)) === 0 && ['published', 'pending'].includes(l.status)) {

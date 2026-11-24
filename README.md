@@ -54,7 +54,7 @@ npm install
 DATABASE_URL=postgresql://postgres@localhost:5432/tikhome ADMIN_PASSWORD='StrongPass#1' npm start
 ```
 
-بدون `SUPABASE_URL` تُحفظ الملفات محلياً في `data/uploads`. الاختبارات (24 فحصاً على Postgres حقيقي):
+بدون `SUPABASE_URL` تُحفظ الملفات محلياً في `data/uploads`. الاختبارات (33 فحصاً على Postgres حقيقي):
 
 ```bash
 TEST_DATABASE_URL=postgresql://postgres@localhost:5432/postgres npm test
@@ -84,5 +84,5 @@ TEST_DATABASE_URL=postgresql://postgres@localhost:5432/postgres npm test
 - لا يوجد تكامل مع نفاذ: التوثيق يطلبه المستخدم ويعتمده المدير يدوياً.
 - لا توجد بوابة دفع: تُفعَّل الاشتراكات يدوياً من لوحة التحكم.
 - لا يوجد استرجاع لكلمة السر ولا تحقق من رقم الجوال برسالة SMS.
-- لا يُضغط الفيديو ولا تُنشأ صور مصغّرة.
+- ضغط الفيديو (720p) يعمل على iOS فقط؛ على أندرويد يُرفع الفيديو كما هو حتى نبني نسخة تطوير (Development Build).
 - نظامياً: كل إعلان يحتاج رقم ترخيص إعلان من الهيئة العامة للعقار، والمنصة نفسها تحتاج ترخيصاً. استشر مستشاراً قانونياً قبل الإطلاق.

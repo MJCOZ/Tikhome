@@ -72,7 +72,8 @@ function myCard(l, reload) {
         try { await A.api('/api/listings/' + l.id, { method: 'PUT', body: { license_no: no.value, license_expires: d.value } }); s.close(); A.toast('تم التحديث، أرسل الإعلان للمراجعة'); reload(); } catch (e) { A.toast(e.message); }
       } }, 'حفظ'));
   };
-  const thumb = l.media_type === 'photos' && l.media[0] ? h('img', { src: l.media[0].url, alt: '', style: { width: '64px', height: '84px', objectFit: 'cover', borderRadius: '10px' } }) : null;
+  const thumbUrl = l.media[0] && (l.media_type === 'photos' ? l.media[0].url : l.media[0].poster);
+  const thumb = thumbUrl ? h('img', { src: thumbUrl, alt: '', style: { width: '64px', height: '84px', objectFit: 'cover', borderRadius: '10px' } }) : null;
   return h('div', { class: 'card' },
     h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('b', {}, `${l.title} · ${l.district}`), h('span', { class: 'status ' + l.status }, A.statusLabel(l.status))),
     h('div', { class: 'row' }, thumb, h('div', { class: 'muted' }, A.fmtPrice(l), h('br'), `المشاهدات: ${l.views ?? 0} · طلبات التواصل: ${l.contacts ?? 0}`, h('br'), `ينتهي الترخيص: ${l.license_expires}`)),
@@ -127,7 +128,7 @@ A.renderSaved = async function renderSaved(app) {
     const label = (j) => { const o = JSON.parse(j); return [o.kind && A.kindLabel(o.kind), o.city, o.district, o.min && 'من ' + o.min, o.max && 'إلى ' + o.max, o.beds && o.beds + '+ غرف'].filter(Boolean).join(' · '); };
     page.replaceChildren(h('h1', {}, 'المحفوظات'),
       s.listings.length ? s.listings.map((l) => h('button', { class: 'card', style: { textAlign: 'right', flexDirection: 'row', alignItems: 'center' }, onclick: () => (location.hash = '#/l/' + l.id) },
-        l.media[0] && l.media_type === 'photos' ? h('img', { src: l.media[0].url, alt: '', style: { width: '64px', height: '84px', objectFit: 'cover', borderRadius: '10px' } }) : h('div', { class: 'ph', style: { position: 'static', width: '64px', height: '84px', borderRadius: '10px', flex: 'none' } }),
+        l.media[0] && (l.media_type === 'photos' || l.media[0].poster) ? h('img', { src: l.media_type === 'photos' ? l.media[0].url : l.media[0].poster, alt: '', style: { width: '64px', height: '84px', objectFit: 'cover', borderRadius: '10px' } }) : h('div', { class: 'ph', style: { position: 'static', width: '64px', height: '84px', borderRadius: '10px', flex: 'none' } }),
         h('div', { class: 'muted' }, h('b', { style: { color: 'var(--ink)', fontSize: '15px' } }, `${l.title} · ${l.district}`), h('br'), [A.floorLabel(l.floor), A.entranceLabel(l.entrance)].filter(Boolean).join(' · '), h('br'), h('span', { class: 'price', style: { fontSize: '16px' } }, A.fmtPrice(l)))))
         : h('div', { class: 'card muted' }, 'لم تحفظ عقاراً بعد. اضغط على القلب في أي إعلان ليظهر هنا.'),
       h('h2', {}, 'عمليات البحث المحفوظة'),
