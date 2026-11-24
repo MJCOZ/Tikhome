@@ -15,7 +15,8 @@ const DEFAULT_SETTINGS = {
   whatsapp_template: 'السلام عليكم، أنا مهتم بـ{title} في {district} (رقم ترخيص الإعلان {license}). هل ما زال متاحاً؟',
   allow_registration: '1',
   max_video_mb: '50', // حد الملف في خطة Supabase المجانية 50 ميغابايت
-  max_photos: '12'
+  max_photos: '12',
+  support_whatsapp: '' // رقم الدعم الذي يتواصل معه المستخدم عند نسيان كلمة السر
 };
 
 function hashPassword(pw) {

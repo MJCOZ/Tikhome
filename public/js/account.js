@@ -20,7 +20,8 @@ A.renderLogin = function renderLogin(app) {
     toggle.textContent = mode === 'login' ? 'ليس لديك حساب؟ سجّل الآن' : 'لديك حساب؟ سجّل الدخول';
     pass.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
   });
-  const form = h('form', { class: 'card' }, A.field('رقم الجوال', phone), nameField, A.field('كلمة السر (8 أحرف على الأقل)', pass), err, btn, toggle);
+  const forgot = h('button', { class: 'btn ghost', type: 'button', onclick: () => A.renderForgot(app, phone.value) }, 'نسيت كلمة السر؟');
+  const form = h('form', { class: 'card' }, A.field('رقم الجوال', phone), nameField, A.field('كلمة السر (8 أحرف على الأقل)', pass), err, btn, toggle, forgot);
   form.addEventListener('submit', async (e) => {
     e.preventDefault(); err.textContent = ''; btn.disabled = true;
     try {
@@ -30,6 +31,34 @@ A.renderLogin = function renderLogin(app) {
     btn.disabled = false;
   });
   app.append(h('div', { class: 'page' }, title, h('div', { class: 'muted' }, 'رقم جوالك لا يظهر للباحثين، ويتم التواصل عبر واتساب برسالة جاهزة.'), form));
+};
+
+// ====== نسيت كلمة السر: التواصل مع الدعم ثم إدخال الرمز ======
+A.renderForgot = async function renderForgot(app, initialPhone = '') {
+  app.replaceChildren();
+  const err = h('div', { class: 'err', role: 'alert' });
+  const phone = h('input', { type: 'tel', inputmode: 'numeric', placeholder: '05xxxxxxxx', maxlength: 14, value: initialPhone });
+  const code = h('input', { inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: 6, placeholder: '6 أرقام', style: { letterSpacing: '4px', textAlign: 'center' } });
+  const pass = h('input', { type: 'password', autocomplete: 'new-password', minlength: 8 });
+  const btn = h('button', { class: 'btn', type: 'submit' }, 'تغيير كلمة السر');
+  let support = null;
+  try { support = (await A.api('/api/auth/support')).whatsapp; } catch { /* */ }
+  const ask = support
+    ? h('a', { class: 'btn sec', target: '_blank', rel: 'noopener', onclick: (e) => { e.currentTarget.href = `https://wa.me/${support}?text=${encodeURIComponent('نسيت كلمة السر في Tikhome. رقم حسابي: ' + (phone.value || ''))}`; } , href: '#' }, 'اطلب رمزاً من الدعم عبر واتساب')
+    : h('div', { class: 'muted' }, 'تواصل مع إدارة المنصة لطلب رمز الاستعادة.');
+  const form = h('form', { class: 'card' }, A.field('رقم الجوال', phone), ask,
+    A.field('رمز الاستعادة', code), A.field('كلمة السر الجديدة (8 أحرف على الأقل)', pass), err, btn,
+    h('button', { class: 'btn ghost', type: 'button', onclick: () => A.renderLogin(app) }, 'رجوع لتسجيل الدخول'));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault(); err.textContent = ''; btn.disabled = true;
+    try {
+      await A.api('/api/auth/reset', { method: 'POST', body: { phone: phone.value, code: code.value, new_password: pass.value } });
+      await A.refreshMe(); A.toast('تم تغيير كلمة السر'); location.hash = '#/feed';
+    } catch (ex) { err.textContent = ex.message; }
+    btn.disabled = false;
+  });
+  app.append(h('div', { class: 'page' }, h('h1', {}, 'استعادة كلمة السر'),
+    h('div', { class: 'muted' }, 'لأمان حسابك، يرسل لك فريق الدعم رمزاً من 6 أرقام على واتساب رقمك المسجّل.'), form));
 };
 
 // ====== بطاقة إعلان المالك ======

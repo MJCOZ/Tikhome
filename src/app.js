@@ -257,6 +257,37 @@ function createApp({ db, storage }) {
     if (t) await db.run('DELETE FROM sessions WHERE token_hash = ?', sha(t));
     ctx.json(200, { ok: true }, { 'Set-Cookie': cookieHeader(ctx.req, '', 0) });
   });
+  // --- استعادة كلمة السر: المستخدم يتواصل مع الدعم، والمدير يصدر رمزاً مؤقتاً من لوحة التحكم
+  const RESET_MINUTES = 30;
+  route('GET', '/api/auth/support', null, async (ctx) => {
+    const n = toLatin(await db.getSetting('support_whatsapp') || '').replace(/\D/g, '');
+    ctx.json(200, { whatsapp: n ? (n.startsWith('0') ? toIntlPhone(n) : n) : null });
+  });
+  route('POST', '/api/auth/reset', null, async (ctx) => {
+    const b = ctx.body;
+    const phone = toLatin(str(b.phone, 20)); const code = toLatin(str(b.code, 10)); const pw = String(b.new_password || '');
+    if (!/^05\d{8}$/.test(phone)) throw bad('رقم الجوال يجب أن يكون بصيغة 05xxxxxxxx');
+    if (!/^\d{6}$/.test(code)) throw bad('الرمز من 6 أرقام');
+    if (pw.length < 8) throw bad('كلمة السر الجديدة 8 أحرف على الأقل');
+    await throttle('reset:' + ctx.ip, 20, 60 * 60 * 1000);
+    await throttle('reset-phone:' + phone, 10, 60 * 60 * 1000);
+    const invalid = new HttpError(400, 'الرمز غير صحيح أو منتهي الصلاحية');
+    const u = await db.one('SELECT * FROM users WHERE phone = ?', phone);
+    if (!u) throw invalid;
+    const r = await db.one('SELECT * FROM password_resets WHERE user_id = ? AND used_at IS NULL AND expires_at > now() ORDER BY id DESC LIMIT 1', u.id);
+    if (!r || r.attempts >= 5) throw invalid;
+    const a = Buffer.from(sha(code + ':' + u.id)); const e = Buffer.from(r.code_hash);
+    if (a.length !== e.length || !crypto.timingSafeEqual(a, e)) {
+      await db.run('UPDATE password_resets SET attempts = attempts + 1 WHERE id = ?', r.id);
+      throw invalid;
+    }
+    if (u.banned) throw new HttpError(403, 'الحساب موقوف');
+    await db.run('UPDATE password_resets SET used_at = now() WHERE id = ?', r.id);
+    await db.run('UPDATE users SET pass_hash = ? WHERE id = ?', hashPassword(pw), u.id);
+    await db.run('DELETE FROM sessions WHERE user_id = ?', u.id);
+    await notify(u.id, 'تم تغيير كلمة السر باستخدام رمز الاستعادة');
+    await authResponse(ctx, 200, u);
+  });
   route('GET', '/api/me', null, async (ctx) => {
     const plan = ctx.user ? await currentPlan(ctx.user.id) : null;
     const unread = ctx.user ? await db.n('SELECT COUNT(*) FROM notifications WHERE user_id = ? AND NOT read', ctx.user.id) : 0;
@@ -572,6 +603,18 @@ function createApp({ db, storage }) {
       (SELECT COUNT(*)::int FROM listings WHERE owner_id = u.id) AS listings_count FROM users u ORDER BY u.id DESC LIMIT 300`);
     ctx.json(200, { users: rows });
   });
+  route('POST', '/api/admin/users/:id/reset-code', 'admin', async (ctx) => {
+    const u = await db.one('SELECT id, phone, name FROM users WHERE id = ?', intOrNull(ctx.params.id));
+    if (!u) throw new HttpError(404, 'غير موجود');
+    const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
+    // رمز واحد صالح فقط لكل مستخدم
+    await db.run('UPDATE password_resets SET used_at = now() WHERE user_id = ? AND used_at IS NULL', u.id);
+    await db.run('INSERT INTO password_resets (user_id, code_hash, expires_at, created_by) VALUES (?, ?, ?, ?)',
+      u.id, sha(code + ':' + u.id), new Date(Date.now() + RESET_MINUTES * 60000), ctx.user.id);
+    await audit(ctx.user.id, 'reset_code_user', u.id);
+    const text = `رمز استعادة كلمة السر في Tikhome: ${code}\nصالح لمدة ${RESET_MINUTES} دقيقة. لا تشاركه مع أحد.`;
+    ctx.json(201, { code, expires_minutes: RESET_MINUTES, whatsapp_url: `https://wa.me/${toIntlPhone(u.phone)}?text=${encodeURIComponent(text)}` });
+  });
   route('POST', '/api/admin/users/:id/:action', 'admin', async (ctx) => {
     const id = intOrNull(ctx.params.id); const a = ctx.params.action;
     const u = await db.one('SELECT * FROM users WHERE id = ?', id);
@@ -632,7 +675,7 @@ function createApp({ db, storage }) {
   });
   route('GET', '/api/admin/settings', 'admin', async (ctx) => ctx.json(200, { settings: await db.settings(true) }));
   route('PUT', '/api/admin/settings', 'admin', async (ctx) => {
-    const allowed = { require_review: /^[01]$/, license_warning_days: /^\d{1,3}$/, allow_registration: /^[01]$/, max_video_mb: /^\d{1,3}$/, max_photos: /^\d{1,2}$/, whatsapp_template: /^[\s\S]{5,400}$/ };
+    const allowed = { require_review: /^[01]$/, license_warning_days: /^\d{1,3}$/, allow_registration: /^[01]$/, max_video_mb: /^\d{1,3}$/, max_photos: /^\d{1,2}$/, whatsapp_template: /^[\s\S]{5,400}$/, support_whatsapp: /^(|0?5\d{8}|9665\d{8})$/ };
     for (const [k, v] of Object.entries(ctx.body)) {
       if (!allowed[k]) continue;
       if (!allowed[k].test(String(v))) throw bad('قيمة غير صحيحة: ' + k);

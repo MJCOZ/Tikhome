@@ -17,6 +17,16 @@ function loginView(msg) {
 
 // ====== أدوات الجداول ======
 const table = (heads, rows) => h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, heads.map((x) => h('th', {}, x)))), h('tbody', {}, rows.length ? rows.map((r) => h('tr', {}, r.map((c) => h('td', {}, c)))) : h('tr', {}, h('td', { colspan: heads.length }, 'لا توجد بيانات')))));
+// إصدار رمز استعادة كلمة السر وإرساله للمستخدم عبر واتساب
+async function issueResetCode(u) {
+  if (!confirm(`إصدار رمز استعادة كلمة السر لـ ${u.name} (${u.phone})؟ تأكد أن الطلب من صاحب الرقم نفسه.`)) return;
+  const d = await api(`/api/admin/users/${u.id}/reset-code`, { method: 'POST' });
+  const s = A.sheet(h('h3', {}, 'رمز الاستعادة'),
+    h('div', { class: 'muted' }, `أرسل هذا الرمز إلى ${u.phone} فقط. صالح ${d.expires_minutes} دقيقة ولمرة واحدة.`),
+    h('div', { style: { fontSize: '32px', fontWeight: 800, letterSpacing: '6px', textAlign: 'center', direction: 'ltr' } }, d.code),
+    h('a', { class: 'btn', href: d.whatsapp_url, target: '_blank', rel: 'noopener' }, 'إرسال عبر واتساب'),
+    h('button', { class: 'btn sec', onclick: () => s.close() }, 'إغلاق'));
+}
 const btn = (label, fn, cls = 'sec') => h('button', { class: 'btn ' + cls, onclick: async (e) => { e.currentTarget.disabled = true; try { await fn(); } catch (ex) { A.toast(ex.message); } refresh(); } }, label);
 const post = (path, body) => api(path, { method: 'POST', body });
 const money = (n) => Number(n).toLocaleString('ar-SA-u-nu-latn');
@@ -51,6 +61,7 @@ const TABS = {
       h('div', { class: 'acts' },
         !u.verified ? btn('توثيق', () => post(`/api/admin/users/${u.id}/verify`), '') : btn('إلغاء التوثيق', () => post(`/api/admin/users/${u.id}/unverify`)),
         u.banned ? btn('رفع الإيقاف', () => post(`/api/admin/users/${u.id}/unban`)) : btn('إيقاف', () => post(`/api/admin/users/${u.id}/ban`), 'danger'),
+        btn('رمز استعادة', () => issueResetCode(u)),
         u.role === 'admin' ? btn('إزالة صلاحية المدير', () => post(`/api/admin/users/${u.id}/demote`)) : btn('ترقية لمدير', () => confirm('منح صلاحيات المدير الكاملة لهذا المستخدم؟') && post(`/api/admin/users/${u.id}/promote`)))]));
   }],
   reports: ['البلاغات', async () => {
@@ -77,11 +88,12 @@ const TABS = {
   settings: ['الإعدادات', async () => {
     const { settings: s } = await api('/api/admin/settings');
     const inputs = {};
-    const row = (key, label, type = 'text') => { inputs[key] = type === 'select' ? h('select', {}, [['1', 'نعم'], ['0', 'لا']].map(([v, t]) => h('option', { value: v, selected: s[key] === v }, t))) : key === 'whatsapp_template' ? h('textarea', { rows: 3 }, s[key]) : h('input', { type: 'number', value: s[key] }); if (key === 'whatsapp_template') inputs[key].value = s[key]; return A.field(label, inputs[key]); };
+    const row = (key, label, type = 'text') => { inputs[key] = type === 'select' ? h('select', {}, [['1', 'نعم'], ['0', 'لا']].map(([v, t]) => h('option', { value: v, selected: s[key] === v }, t))) : key === 'whatsapp_template' ? h('textarea', { rows: 3 }, s[key]) : h('input', { type, value: s[key] ?? '', inputmode: type === 'tel' ? 'numeric' : null, placeholder: type === 'tel' ? '05xxxxxxxx' : null }); if (key === 'whatsapp_template') inputs[key].value = s[key]; return A.field(label, inputs[key]); };
     return h('div', { class: 'card' },
       row('require_review', 'مراجعة كل إعلان قبل النشر', 'select'), row('allow_registration', 'السماح بالتسجيل الجديد', 'select'),
       row('license_warning_days', 'التنبيه قبل انتهاء الترخيص (أيام)'), row('max_video_mb', 'أقصى حجم للفيديو (ميغابايت)'), row('max_photos', 'أقصى عدد صور للإعلان'),
       row('whatsapp_template', 'رسالة واتساب الجاهزة (المتغيرات: {title} {district} {license})'),
+      row('support_whatsapp', 'رقم واتساب الدعم (يتواصل معه من نسي كلمة السر)', 'tel'),
       btn('حفظ الإعدادات', async () => { await api('/api/admin/settings', { method: 'PUT', body: Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value])) }); A.toast('تم الحفظ'); }, ''));
   }],
   audit: ['السجل', async () => {

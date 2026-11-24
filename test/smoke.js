@@ -111,6 +111,24 @@ async function upload(who, id, buf, mime) {
 
     r = await call('admin', 'GET', '/api/admin/stats'); assert.equal(r.data.users, 2); ok('إحصائيات');
 
+    // استعادة كلمة السر برمز يصدره المدير
+    r = await call('owner', 'POST', '/api/admin/users/1/reset-code'); assert.equal(r.status, 403);
+    const owner = (await call('admin', 'GET', '/api/admin/users')).data.users.find((u) => u.phone === '0555555551');
+    r = await call('admin', 'POST', `/api/admin/users/${owner.id}/reset-code`);
+    assert.equal(r.status, 201); assert.match(r.data.code, /^\d{6}$/); assert.ok(r.data.whatsapp_url.includes('wa.me/966555555551'));
+    const code = r.data.code; const wrong = code === '000000' ? '111111' : '000000';
+    r = await call('reset', 'POST', '/api/auth/reset', { phone: '0555555551', code: wrong, new_password: 'NewPass#2026' }); assert.equal(r.status, 400);
+    r = await call('reset', 'POST', '/api/auth/reset', { phone: '0555555551', code, new_password: 'NewPass#2026' }, { 'X-Client': 'mobile' });
+    assert.equal(r.status, 200, JSON.stringify(r.data)); assert.ok(r.data.token);
+    r = await call('mobile', 'GET', '/api/me'); assert.equal(r.data.user, null); ok('الرمز يغيّر كلمة السر وينهي الجلسات القديمة');
+    r = await call('reset2', 'POST', '/api/auth/reset', { phone: '0555555551', code, new_password: 'Another#2026' }); assert.equal(r.status, 400); ok('الرمز يُستخدم مرة واحدة');
+    r = await call('o2', 'POST', '/api/auth/login', { phone: '0555555551', password: 'NewPass#2026' }); assert.equal(r.status, 200); ok('الدخول بكلمة السر الجديدة');
+    r = await call('admin', 'POST', `/api/admin/users/${owner.id}/reset-code`); const c2 = r.data.code;
+    for (let i = 0; i < 5; i++) await call('bf', 'POST', '/api/auth/reset', { phone: '0555555551', code: String((Number(c2) + 1 + i) % 1e6).padStart(6, '0'), new_password: 'Brute#20266' });
+    r = await call('bf', 'POST', '/api/auth/reset', { phone: '0555555551', code: c2, new_password: 'Brute#20266' }); assert.equal(r.status, 400); ok('الرمز يُلغى بعد 5 محاولات خاطئة');
+    await call('admin', 'PUT', '/api/admin/settings', { support_whatsapp: '0551234567' });
+    r = await call('anon', 'GET', '/api/auth/support'); assert.equal(r.data.whatsapp, '966551234567'); ok('رقم واتساب الدعم');
+
     r = await call('anon', 'GET', '/api/cron/sweep'); assert.equal(r.status, 401);
     process.env.CRON_SECRET = 'test-cron';
     r = await call('anon', 'GET', '/api/cron/sweep', undefined, { Authorization: 'Bearer test-cron' }); assert.equal(r.status, 200); ok('المهمة اليومية محمية بمفتاح');
