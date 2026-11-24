@@ -20,5 +20,12 @@ window.addEventListener('hashchange', route);
 (async () => {
   try { A.config = await A.api('/api/config'); } catch { /* القيم الافتراضية */ }
   await A.refreshMe();
+  // العودة من صفحة الدفع
+  const q = new URLSearchParams(location.search);
+  if (q.has('payment')) {
+    const st = q.get('payment');
+    A.toast(st === 'paid' ? 'تم الدفع وتفعيل باقتك' : st === 'initiated' ? 'لم يكتمل الدفع بعد. إن خُصم المبلغ ستُفعّل الباقة خلال دقائق.' : 'لم يتم الدفع');
+    history.replaceState(null, '', '/' + location.hash);
+  }
   route();
 })();

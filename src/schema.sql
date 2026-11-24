@@ -136,6 +136,25 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- مدة الباقة المدفوعة بالأيام
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS duration_days INTEGER NOT NULL DEFAULT 30;
+
+-- المدفوعات عبر Moyasar
+CREATE TABLE IF NOT EXISTS payments (
+  id SERIAL PRIMARY KEY,
+  ref TEXT NOT NULL UNIQUE,                     -- مرجع داخلي عشوائي
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plan_id INTEGER NOT NULL REFERENCES plans(id),
+  amount_halalas INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'initiated',     -- initiated | paid | failed | expired
+  provider_id TEXT UNIQUE,                      -- رقم الفاتورة لدى ميسّر
+  pay_url TEXT,
+  subscription_id INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  paid_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, id DESC);
+
 -- رموز استعادة كلمة السر (يصدرها المدير مؤقتاً حتى يُضاف SMS)
 CREATE TABLE IF NOT EXISTS password_resets (
   id SERIAL PRIMARY KEY,
@@ -172,3 +191,4 @@ ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rate_hits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE password_resets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;

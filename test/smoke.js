@@ -10,6 +10,26 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'tikhome-'));
 process.env.ADMIN_PHONE = '0500000000';
 process.env.ADMIN_PASSWORD = 'AdminPass#123';
 delete process.env.SUPABASE_URL;
+process.env.MOYASAR_SECRET_KEY = 'sk_test_fake';
+process.env.MOYASAR_WEBHOOK_SECRET = 'whsec_fake';
+
+// خادم وهمي يحاكي واجهة Moyasar للفواتير
+const http = require('node:http');
+const invoices = new Map();
+const fakeMoyasar = http.createServer((req, res) => {
+  const send = (st, o) => { res.writeHead(st, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
+  if (req.headers.authorization !== 'Basic ' + Buffer.from('sk_test_fake:').toString('base64')) return send(401, { message: 'unauthorized' });
+  let body = ''; req.on('data', (c) => (body += c)); req.on('end', () => {
+    if (req.method === 'POST' && req.url === '/v1/invoices') {
+      const b = JSON.parse(body); const id = 'inv_' + (invoices.size + 1);
+      const inv = { id, status: 'initiated', amount: b.amount, currency: b.currency, url: 'https://checkout.moyasar.test/' + id, metadata: b.metadata, success_url: b.success_url };
+      invoices.set(id, inv); return send(201, inv);
+    }
+    const m = /^\/v1\/invoices\/(.+)$/.exec(req.url);
+    if (req.method === 'GET' && m && invoices.has(m[1])) return send(200, invoices.get(m[1]));
+    send(404, { message: 'not found' });
+  });
+});
 
 const jar = {}; const tokens = {};
 let base, passed = 0;
@@ -43,6 +63,8 @@ async function upload(who, id, buf, mime) {
   const u = new URL(ADMIN_URL); u.pathname = '/' + TEST_DB;
   process.env.DATABASE_URL = u.toString();
 
+  await new Promise((r) => fakeMoyasar.listen(0, '127.0.0.1', r));
+  process.env.MOYASAR_API_URL = 'http://127.0.0.1:' + fakeMoyasar.address().port + '/v1';
   const { createServer } = require('../server');
   const server = createServer();
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -152,6 +174,40 @@ async function upload(who, id, buf, mime) {
     await call('admin', 'PUT', '/api/admin/settings', { support_whatsapp: '0551234567' });
     r = await call('anon', 'GET', '/api/auth/support'); assert.equal(r.data.whatsapp, '966551234567'); ok('رقم واتساب الدعم');
 
+    // الدفع عبر Moyasar
+    r = await call('anon', 'GET', '/api/config'); assert.equal(r.data.payments, true);
+    r = await call('o2', 'POST', '/api/billing/checkout', { plan_id: 1 }); assert.equal(r.status, 400); ok('لا دفع للباقة المجانية');
+    await call('admin', 'PUT', '/api/admin/plans/2', { price_sar: 99, duration_days: 30 });
+    r = await call('o2', 'POST', '/api/billing/checkout', { plan_id: 2, return_to: 'https://evil.example/steal' });
+    assert.equal(r.status, 201, JSON.stringify(r.data)); assert.ok(r.data.url.startsWith('https://checkout.moyasar.test/'));
+    const ref1 = r.data.ref; const inv1 = [...invoices.values()].at(-1);
+    assert.equal(inv1.amount, 9900); assert.ok(!inv1.success_url.includes('evil')); ok('إنشاء فاتورة بالمبلغ الصحيح بالهللة');
+    r = await call('o2', 'GET', '/api/billing/payments/' + ref1); assert.equal(r.data.payment.status, 'initiated'); assert.equal(r.data.plan.id, 1);
+    inv1.status = 'paid'; inv1.amount = 100;
+    r = await call('o2', 'GET', '/api/billing/payments/' + ref1); assert.equal(r.data.payment.status, 'initiated'); ok('رفض الدفع إذا اختلف المبلغ');
+    inv1.amount = 9900;
+    let red = await fetch(base + '/api/billing/return?ref=' + ref1, { redirect: 'manual' });
+    assert.equal(red.status, 302); assert.equal(red.headers.get('location'), `/?payment=paid&ref=${ref1}#/me`);
+    r = await call('o2', 'GET', '/api/me'); assert.equal(r.data.plan.id, 2); ok('الدفع يفعّل الباقة تلقائياً');
+    await fetch(base + '/api/billing/return?ref=' + ref1, { redirect: 'manual' });
+    await fetch(base + '/api/billing/callback?ref=' + ref1, { method: 'POST', body: 'x=1' });
+    r = await call('admin', 'GET', '/api/admin/subscriptions'); assert.equal(r.data.subscriptions.filter((x) => x.note && x.note.includes(ref1)).length, 1); ok('لا يتكرر التفعيل');
+    r = await call('mobileapp', 'POST', '/api/auth/login', { phone: '0555555551', password: 'NewPass#2026' });
+    r = await call('o2', 'POST', '/api/billing/checkout', { plan_id: 2, return_to: 'exp://192.168.1.5:8081/--/billing' });
+    const ref2 = r.data.ref; const inv2 = [...invoices.values()].at(-1); inv2.status = 'paid';
+    r = await call('x', 'GET', '/api/billing/payments/' + ref2); assert.equal(r.status, 401);
+    red = await fetch(base + '/api/billing/return?ref=' + ref2 + '&to=' + encodeURIComponent('exp://192.168.1.5:8081/--/billing'), { redirect: 'manual' });
+    assert.ok(red.headers.get('location').startsWith('exp://192.168.1.5:8081/--/billing?payment=paid')); ok('العودة إلى التطبيق بعد الدفع');
+    r = await call('admin', 'GET', '/api/admin/subscriptions');
+    const mine = r.data.subscriptions.filter((x) => x.phone === '0555555551').sort((a, b) => a.id - b.id);
+    assert.equal(mine.length, 2); assert.equal(mine[1].starts_at, mine[0].ends_at); ok('التجديد يُضاف لنهاية الاشتراك الحالي');
+    r = await fetch(base + '/api/billing/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret_token: 'wrong', data: {} }) });
+    assert.equal(r.status, 401);
+    r = await call('o2', 'POST', '/api/billing/checkout', { plan_id: 2 }); const ref3 = r.data.ref; const inv3 = [...invoices.values()].at(-1); inv3.status = 'paid';
+    r = await fetch(base + '/api/billing/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret_token: 'whsec_fake', type: 'payment_paid', data: { invoice_id: inv3.id } }) });
+    assert.equal(r.status, 200);
+    r = await call('admin', 'GET', '/api/admin/payments'); assert.equal(r.data.payments.find((x) => x.ref === ref3).status, 'paid'); ok('إشعار ميسّر (webhook) محمي ويفعّل الدفع');
+
     r = await call('anon', 'GET', '/api/cron/sweep'); assert.equal(r.status, 401);
     process.env.CRON_SECRET = 'test-cron';
     r = await call('anon', 'GET', '/api/cron/sweep', undefined, { Authorization: 'Bearer test-cron' }); assert.equal(r.status, 200); ok('المهمة اليومية محمية بمفتاح');
@@ -162,7 +218,7 @@ async function upload(who, id, buf, mime) {
 
     console.log(`\nنجح ${passed} اختباراً`);
   } finally {
-    server.close(); await server.db.pool.end();
+    server.close(); fakeMoyasar.close(); await server.db.pool.end();
     await admin.query(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`); await admin.end();
     fs.rmSync(process.env.DATA_DIR, { recursive: true, force: true });
   }

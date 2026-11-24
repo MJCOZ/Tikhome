@@ -105,10 +105,32 @@ A.renderMe = async function renderMe(app) {
         A.user.verify_requested && !A.user.verified ? h('span', { class: 'tag' }, 'طلب التوثيق قيد المراجعة') : null,
         h('button', { class: 'btn ghost sm', onclick: pwd }, 'تغيير كلمة السر'),
         h('button', { class: 'btn danger sm', onclick: async () => { await A.api('/api/auth/logout', { method: 'POST' }); A.user = null; A.renderTabs(); location.hash = '#/feed'; } }, 'خروج')),
+      plansSection(),
       h('h2', {}, 'الإشعارات'),
       notes.notifications.length ? h('div', { class: 'card' }, notes.notifications.slice(0, 8).map((n) => h('div', { class: 'muted' }, '• ' + n.text))) : h('div', { class: 'muted' }, 'لا توجد إشعارات.'),
       h('h2', {}, 'إعلاناتي'),
       mine.listings.length ? mine.listings.map((l) => myCard(l, load)) : h('div', { class: 'card' }, h('div', { class: 'muted' }, 'لم تنشر إعلاناً بعد.'), h('button', { class: 'btn', onclick: () => (location.hash = '#/publish') }, 'انشر أول إعلان')));
+  }
+  function plansSection() {
+    const box = h('div');
+    (async () => {
+      try {
+        const [{ plans }, { subscription }] = await Promise.all([A.api('/api/plans'), A.api('/api/billing/subscription')]);
+        const paid = plans.filter((p) => p.price_sar > 0);
+        if (!paid.length) return;
+        box.replaceChildren(h('div', {}, h('h2', {}, 'الباقات'),
+          subscription ? h('div', { class: 'muted' }, `باقتك الحالية: ${subscription.name} حتى ${subscription.ends_at}`) : null,
+          paid.map((p) => h('div', { class: 'card' },
+            h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('b', {}, p.name), h('span', { class: 'price', style: { fontSize: '18px' } }, `${p.price_sar} ر.س`)),
+            h('div', { class: 'muted' }, `حتى ${p.max_listings} إعلان · ${p.duration_days || 30} يوماً${p.featured_days ? ` · تمييز ${p.featured_days} أيام` : ''}`),
+            A.config.payments ? h('button', { class: 'btn sm', onclick: async (e) => {
+              e.currentTarget.disabled = true;
+              try { const d = await A.api('/api/billing/checkout', { method: 'POST', body: { plan_id: p.id } }); location.href = d.url; } catch (ex) { A.toast(ex.message); e.currentTarget.disabled = false; }
+            } }, subscription && subscription.plan_id === p.id ? 'تجديد' : 'اشترك الآن')
+              : h('div', { class: 'muted' }, 'الدفع الإلكتروني غير مفعّل بعد. تواصل مع الإدارة للاشتراك.')))));
+      } catch { /* */ }
+    })();
+    return box;
   }
   function pwd() {
     const o = h('input', { type: 'password', autocomplete: 'current-password' }); const n = h('input', { type: 'password', autocomplete: 'new-password', minlength: 8 });

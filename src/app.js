@@ -31,7 +31,8 @@ function magicOk(mime, buf) {
   return false;
 }
 
-function createApp({ db, storage }) {
+function createApp({ db, storage, moyasar = null }) {
+  moyasar = moyasar || require('./moyasar').createMoyasar();
   // ------------------------------------------------------------ أدوات
   const audit = (adminId, action, target) => db.run('INSERT INTO audit_log (admin_id, action, target) VALUES (?, ?, ?)', adminId, action, String(target ?? ''));
   const notify = (userId, text, listingId = null) => db.run('INSERT INTO notifications (user_id, text, listing_id) VALUES (?, ?, ?)', userId, text, listingId);
@@ -224,6 +225,11 @@ function createApp({ db, storage }) {
     }
     await db.run('DELETE FROM sessions WHERE expires_at < now()');
     await db.run("DELETE FROM rate_hits WHERE at < now() - interval '1 day'");
+    // مدفوعات لم يرجع أصحابها من صفحة الدفع
+    for (const p of await db.all("SELECT * FROM payments WHERE status = 'initiated' AND provider_id IS NOT NULL AND created_at < now() - interval '10 minutes' AND created_at > now() - interval '3 days'")) {
+      try { await verifyPayment(p); } catch (e) { console.error(e); }
+    }
+    await db.run("UPDATE payments SET status = 'expired' WHERE status = 'initiated' AND created_at < now() - interval '3 days'");
     return { expired: expired.length, warned: soon.length };
   }
 
@@ -318,7 +324,7 @@ function createApp({ db, storage }) {
   // --- الإعلانات (عام)
   route('GET', '/api/config', null, async (ctx) => {
     const s = await db.settings();
-    ctx.json(200, { max_video_mb: Number(s.max_video_mb), max_photos: Number(s.max_photos), max_photo_mb: MAX_PHOTO_MB });
+    ctx.json(200, { max_video_mb: Number(s.max_video_mb), max_photos: Number(s.max_photos), max_photo_mb: MAX_PHOTO_MB, payments: moyasar.enabled });
   });
   route('GET', '/api/listings', null, async (ctx) => ctx.json(200, { listings: await searchListings(ctx.query, ctx.user) }));
   route('GET', '/api/listings/:id', null, async (ctx) => {
@@ -568,6 +574,105 @@ function createApp({ db, storage }) {
     }
     ctx.json(200, { ok: true, status });
   });
+  // --- الدفع عبر Moyasar: فاتورة مستضافة ← عودة المستخدم ← تحقق من خادم ميسّر ← تفعيل الباقة
+  const baseUrl = (req) => (process.env.PUBLIC_URL || `${req.headers['x-forwarded-proto'] || (process.env.VERCEL ? 'https' : 'http')}://${req.headers['x-forwarded-host'] || req.headers.host}`).replace(/\/+$/, '');
+  const APP_RETURN = /^(tikhome|exps?):\/\/[\w.\-:@/%~+]{0,300}$/;
+  const publicPayment = (p) => p && ({ ref: p.ref, status: p.status, plan_id: p.plan_id, amount_sar: p.amount_halalas / 100, created_at: p.created_at, paid_at: p.paid_at });
+
+  async function activatePayment(p) {
+    const row = await db.one("UPDATE payments SET status = 'paid', paid_at = now() WHERE id = ? AND status = 'initiated' RETURNING *", p.id);
+    if (!row) return db.one('SELECT * FROM payments WHERE id = ?', p.id); // فُعّلت مسبقاً
+    const plan = await db.one('SELECT * FROM plans WHERE id = ?', p.plan_id);
+    // التجديد قبل الانتهاء يُضاف إلى نهاية الاشتراك الحالي
+    const sub = await db.one(`WITH s AS (SELECT GREATEST(CURRENT_DATE, COALESCE((SELECT MAX(ends_at) FROM subscriptions WHERE user_id = ? AND plan_id = ?), CURRENT_DATE)) AS d)
+      INSERT INTO subscriptions (user_id, plan_id, starts_at, ends_at, note) SELECT ?, ?, d, d + ?::int, ? FROM s RETURNING *`,
+    p.user_id, p.plan_id, p.user_id, p.plan_id, plan.duration_days || 30, 'دفع ميسّر ' + p.ref);
+    await db.run('UPDATE payments SET subscription_id = ? WHERE id = ?', sub.id, p.id);
+    await notify(p.user_id, `تم الدفع وتفعيل باقة «${plan.name}» حتى ${sub.ends_at}`);
+    return { ...row, subscription_id: sub.id };
+  }
+  async function verifyPayment(p) {
+    if (!p || p.status !== 'initiated' || !p.provider_id || !moyasar.enabled) return p;
+    const inv = await moyasar.getInvoice(p.provider_id);
+    if (String(inv.id) !== p.provider_id) return p;
+    if (inv.status === 'paid') {
+      if (Number(inv.amount) !== p.amount_halalas || String(inv.currency || '').toUpperCase() !== 'SAR') {
+        console.error('Moyasar amount mismatch', p.ref, inv.amount, inv.currency);
+        return p;
+      }
+      return activatePayment(p);
+    }
+    if (['expired', 'canceled', 'failed', 'voided'].includes(inv.status)) {
+      return db.one("UPDATE payments SET status = ? WHERE id = ? AND status = 'initiated' RETURNING *", inv.status === 'expired' ? 'expired' : 'failed', p.id) || p;
+    }
+    return p;
+  }
+  const paymentByRef = (ref) => db.one('SELECT * FROM payments WHERE ref = ?', String(ref || '').slice(0, 64));
+
+  route('POST', '/api/billing/checkout', 'user', async (ctx) => {
+    if (!moyasar.enabled) throw new HttpError(503, 'الدفع الإلكتروني غير مفعّل حالياً');
+    const plan = await db.one('SELECT * FROM plans WHERE id = ? AND active', intOrNull(ctx.body.plan_id));
+    if (!plan) throw bad('الباقة غير متاحة');
+    if (!(plan.price_sar > 0)) throw bad('هذه الباقة مجانية');
+    await throttle('checkout:' + ctx.user.id, 20, 60 * 60 * 1000);
+    const returnTo = typeof ctx.body.return_to === 'string' && APP_RETURN.test(ctx.body.return_to) ? ctx.body.return_to : null;
+    const ref = crypto.randomBytes(18).toString('base64url');
+    const amount = plan.price_sar * 100;
+    const p = await db.one('INSERT INTO payments (ref, user_id, plan_id, amount_halalas) VALUES (?, ?, ?, ?) RETURNING *', ref, ctx.user.id, plan.id, amount);
+    const base = baseUrl(ctx.req);
+    const ret = `${base}/api/billing/return?ref=${ref}${returnTo ? '&to=' + encodeURIComponent(returnTo) : ''}`;
+    let inv;
+    try {
+      inv = await moyasar.createInvoice({
+        amount, description: `Tikhome — باقة ${plan.name} (${plan.duration_days || 30} يوماً)`,
+        successUrl: ret, backUrl: ret + '&cancel=1', callbackUrl: `${base}/api/billing/callback?ref=${ref}`,
+        metadata: { ref, user_id: String(ctx.user.id), plan_id: String(plan.id) },
+      });
+    } catch (e) {
+      await db.run("UPDATE payments SET status = 'failed' WHERE id = ?", p.id);
+      throw new HttpError(502, e.message);
+    }
+    if (!inv.id || !inv.url) throw new HttpError(502, 'ردّ غير متوقع من بوابة الدفع');
+    await db.run('UPDATE payments SET provider_id = ?, pay_url = ? WHERE id = ?', String(inv.id), inv.url, p.id);
+    ctx.json(201, { ref, url: inv.url });
+  });
+  // عودة المتصفح من صفحة الدفع
+  route('GET', '/api/billing/return', null, async (ctx) => {
+    let p = await paymentByRef(ctx.query.ref);
+    try { p = await verifyPayment(p); } catch (e) { console.error(e); }
+    const status = p ? p.status : 'unknown';
+    const to = typeof ctx.query.to === 'string' && APP_RETURN.test(ctx.query.to) ? ctx.query.to : null;
+    const qs = `payment=${encodeURIComponent(status)}&ref=${encodeURIComponent(p ? p.ref : '')}`;
+    ctx.redirect(to ? `${to}${to.includes('?') ? '&' : '?'}${qs}` : `/?${qs}#/me`);
+  });
+  // إشعار من ميسّر: لا نقرأ محتواه، فقط نعيد التحقق من خادم ميسّر
+  route('POST', '/api/billing/callback', null, async (ctx) => {
+    const p = await paymentByRef(ctx.query.ref);
+    if (p) await verifyPayment(p);
+    ctx.json(200, { ok: true });
+  });
+  route('POST', '/api/billing/webhook', null, async (ctx) => {
+    const secret = process.env.MOYASAR_WEBHOOK_SECRET;
+    const got = Buffer.from(String(ctx.body.secret_token || '')); const want = Buffer.from(String(secret || ''));
+    if (!secret || got.length !== want.length || !crypto.timingSafeEqual(got, want)) throw new HttpError(401, 'غير مصرّح');
+    const d = ctx.body.data || {};
+    const p = d.invoice_id ? await db.one('SELECT * FROM payments WHERE provider_id = ?', String(d.invoice_id))
+      : d.metadata && d.metadata.ref ? await paymentByRef(d.metadata.ref) : null;
+    if (p) await verifyPayment(p);
+    ctx.json(200, { ok: true });
+  });
+  route('GET', '/api/billing/payments/:ref', 'user', async (ctx) => {
+    let p = await paymentByRef(ctx.params.ref);
+    if (!p || p.user_id !== ctx.user.id) throw new HttpError(404, 'غير موجود');
+    p = await verifyPayment(p);
+    ctx.json(200, { payment: publicPayment(p), plan: await currentPlan(ctx.user.id) });
+  });
+  route('GET', '/api/billing/subscription', 'user', async (ctx) => {
+    const sub = await db.one(`SELECT s.ends_at, p.name, p.id AS plan_id FROM subscriptions s JOIN plans p ON p.id = s.plan_id
+      WHERE s.user_id = ? AND s.ends_at >= CURRENT_DATE ORDER BY p.max_listings DESC, s.ends_at DESC LIMIT 1`, ctx.user.id);
+    ctx.json(200, { subscription: sub || null });
+  });
+
   route('GET', '/api/plans', null, async (ctx) => ctx.json(200, { plans: await db.all('SELECT * FROM plans WHERE active ORDER BY id') }));
 
   // --- لوحة المدير
@@ -672,8 +777,9 @@ function createApp({ db, storage }) {
   route('POST', '/api/admin/plans', 'admin', async (ctx) => {
     const b = ctx.body;
     const name = str(b.name, 60); if (!name) throw bad('اسم الباقة مطلوب');
-    const r = await db.one('INSERT INTO plans (name, price_sar, max_listings, featured_days, active) VALUES (?, ?, ?, ?, ?) RETURNING id',
-      name, Math.max(intOrNull(b.price_sar) || 0, 0), Math.max(intOrNull(b.max_listings) || 1, 1), Math.max(intOrNull(b.featured_days) || 0, 0), b.active !== false);
+    const r = await db.one('INSERT INTO plans (name, price_sar, max_listings, featured_days, active, duration_days) VALUES (?, ?, ?, ?, ?, ?) RETURNING id',
+      name, Math.max(intOrNull(b.price_sar) || 0, 0), Math.max(intOrNull(b.max_listings) || 1, 1), Math.max(intOrNull(b.featured_days) || 0, 0), b.active !== false,
+      Math.min(Math.max(intOrNull(b.duration_days) || 30, 1), 3650));
     await audit(ctx.user.id, 'create_plan', r.id);
     ctx.json(201, { id: r.id });
   });
@@ -681,6 +787,7 @@ function createApp({ db, storage }) {
     const b = ctx.body;
     const p = await db.one('SELECT * FROM plans WHERE id = ?', intOrNull(ctx.params.id));
     if (!p) throw new HttpError(404, 'غير موجود');
+    if (b.duration_days != null) await db.run('UPDATE plans SET duration_days = ? WHERE id = ?', Math.min(Math.max(intOrNull(b.duration_days) || 30, 1), 3650), p.id);
     await db.run('UPDATE plans SET name = ?, price_sar = ?, max_listings = ?, featured_days = ?, active = ? WHERE id = ?',
       str(b.name, 60) || p.name, b.price_sar != null ? Math.max(intOrNull(b.price_sar) || 0, 0) : p.price_sar,
       b.max_listings != null ? Math.max(intOrNull(b.max_listings) || 1, 1) : p.max_listings,
@@ -704,6 +811,10 @@ function createApp({ db, storage }) {
     await notify(user.id, 'تم تفعيل باقتك حتى ' + ends);
     await audit(ctx.user.id, 'assign_subscription', `${user.id}:${plan.id}:${days}d`);
     ctx.json(201, { ends_at: ends });
+  });
+  route('GET', '/api/admin/payments', 'admin', async (ctx) => {
+    ctx.json(200, { payments: await db.all(`SELECT y.ref, y.status, y.amount_halalas, y.provider_id, y.created_at, y.paid_at, u.name AS user_name, u.phone, p.name AS plan_name
+      FROM payments y JOIN users u ON u.id = y.user_id JOIN plans p ON p.id = y.plan_id ORDER BY y.id DESC LIMIT 200`) });
   });
   route('GET', '/api/admin/settings', 'admin', async (ctx) => ctx.json(200, { settings: await db.settings(true) }));
   route('PUT', '/api/admin/settings', 'admin', async (ctx) => {
@@ -750,7 +861,9 @@ function createApp({ db, storage }) {
     const url = new URL(req.url, 'http://x');
     try {
       // CSRF: كل طلب غير GET يجب أن يحمل ترويسة لا يستطيع موقع آخر إرسالها
-      if (req.method !== 'GET' && req.headers['x-requested-with'] !== 'fetch') throw new HttpError(403, 'طلب غير مسموح');
+      // استثناء إشعارات ميسّر: لا تغيّر شيئاً بنفسها، فقط تطلب إعادة التحقق من خادم ميسّر
+      const providerHook = url.pathname === '/api/billing/callback' || url.pathname === '/api/billing/webhook';
+      if (req.method !== 'GET' && !providerHook && req.headers['x-requested-with'] !== 'fetch') throw new HttpError(403, 'طلب غير مسموح');
       await db.ready();
       if (url.pathname === '/api/cron/sweep') {
         const secret = process.env.CRON_SECRET;
@@ -766,12 +879,13 @@ function createApp({ db, storage }) {
       let body = {};
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         const buf = await readBody(req);
-        if (buf.length) { try { body = JSON.parse(buf.toString('utf8')); } catch { throw bad('صيغة JSON غير صحيحة'); } }
+        if (buf.length) { try { body = JSON.parse(buf.toString('utf8')); } catch { if (!providerHook) throw bad('صيغة JSON غير صحيحة'); } }
         if (!body || typeof body !== 'object' || Array.isArray(body)) body = {};
       }
       const ctx = {
         req, ip: clientIp(req), user, body, query: Object.fromEntries(url.searchParams), params: r.re.exec(url.pathname).groups || {},
-        json: (status, obj, headers) => sendJson(res, status, obj, headers)
+        json: (status, obj, headers) => sendJson(res, status, obj, headers),
+        redirect: (location) => { res.writeHead(302, { Location: location, 'Cache-Control': 'no-store' }); res.end(); }
       };
       return await r.handler(ctx);
     } catch (e) {

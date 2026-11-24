@@ -71,18 +71,20 @@ const TABS = {
         btn('إيقاف الإعلان', () => post(`/api/admin/listings/${r.listing_id}/takedown`), 'danger'))]));
   }],
   plans: ['الباقات والاشتراكات', async () => {
-    const [p, s] = await Promise.all([api('/api/admin/plans'), api('/api/admin/subscriptions')]);
+    const [p, s, pay] = await Promise.all([api('/api/admin/plans'), api('/api/admin/subscriptions'), api('/api/admin/payments')]);
     const name = h('input', { placeholder: 'اسم الباقة' }); const price = h('input', { type: 'number', placeholder: 'السعر ر.س' });
     const max = h('input', { type: 'number', placeholder: 'أقصى عدد إعلانات' }); const feat = h('input', { type: 'number', placeholder: 'أيام التمييز' });
     const phone = h('input', { placeholder: 'جوال المشترك 05xxxxxxxx' }); const plan = h('select', {}, p.plans.map((x) => h('option', { value: x.id }, x.name)));
     const days = h('input', { type: 'number', placeholder: 'المدة بالأيام', value: 30 });
     const inline = (pl, key) => { const i = h('input', { type: 'number', value: pl[key], style: { width: '90px' } }); i.addEventListener('change', async () => { try { await api('/api/admin/plans/' + pl.id, { method: 'PUT', body: { [key]: Number(i.value) } }); A.toast('تم الحفظ'); } catch (e) { A.toast(e.message); } }); return i; };
     return h('div', {},
-      h('h2', {}, 'الباقات'), h('div', { class: 'muted' }, 'عدّل السعر والحدود مباشرة في الجدول. الدفع لا يتم تلقائياً: بعد استلام المبلغ فعّل الاشتراك من النموذج بالأسفل.'),
-      table(['الباقة', 'السعر (ر.س)', 'أقصى إعلانات', 'أيام التمييز', 'مفعّلة'], p.plans.map((x) => [x.name, inline(x, 'price_sar'), inline(x, 'max_listings'), inline(x, 'featured_days'),
+      h('h2', {}, 'الباقات'), h('div', { class: 'muted' }, 'عدّل السعر والحدود مباشرة في الجدول. الباقة التي سعرها أكبر من صفر يدفعها المستخدم عبر ميسّر وتُفعَّل تلقائياً، ويمكنك أيضاً التفعيل اليدوي من النموذج بالأسفل.'),
+      table(['الباقة', 'السعر (ر.س)', 'المدة (أيام)', 'أقصى إعلانات', 'أيام التمييز', 'مفعّلة'], p.plans.map((x) => [x.name, inline(x, 'price_sar'), inline(x, 'duration_days'), inline(x, 'max_listings'), inline(x, 'featured_days'),
         btn(x.active ? 'نعم' : 'لا', () => api('/api/admin/plans/' + x.id, { method: 'PUT', body: { active: !x.active } }))])),
       h('h2', {}, 'إضافة باقة'), h('div', { class: 'card' }, h('div', { class: 'grid2' }, name, price, max, feat), btn('إضافة', async () => { await post('/api/admin/plans', { name: name.value, price_sar: price.value, max_listings: max.value, featured_days: feat.value }); }, '')),
       h('h2', {}, 'تفعيل اشتراك لمستخدم'), h('div', { class: 'card' }, h('div', { class: 'grid2' }, phone, plan, days), btn('تفعيل', async () => { const r = await post('/api/admin/subscriptions', { phone: phone.value, plan_id: plan.value, days: days.value }); A.toast('يسري حتى ' + r.ends_at); }, '')),
+      h('h2', {}, 'المدفوعات (ميسّر)'), table(['المستخدم', 'الجوال', 'الباقة', 'المبلغ', 'الحالة', 'رقم الفاتورة', 'التاريخ'], pay.payments.map((x) => [x.user_name, x.phone, x.plan_name, money(x.amount_halalas / 100) + ' ر.س',
+        ({ initiated: 'بانتظار الدفع', paid: 'مدفوع', failed: 'فشل', expired: 'منتهٍ' })[x.status] || x.status, x.provider_id || '-', String(x.created_at).slice(0, 16).replace('T', ' ')])),
       h('h2', {}, 'الاشتراكات'), table(['المستخدم', 'الجوال', 'الباقة', 'من', 'إلى'], s.subscriptions.map((x) => [x.user_name, x.phone, x.plan_name, x.starts_at, x.ends_at])));
   }],
   settings: ['الإعدادات', async () => {

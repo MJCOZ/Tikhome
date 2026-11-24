@@ -1,4 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import * as WebBrowser from 'expo-web-browser';
+import * as ExpoLinking from 'expo-linking';
 import { Alert, Linking, RefreshControl, ScrollView, View } from 'react-native';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
@@ -13,6 +15,56 @@ import { Sheet } from '../../components/Sheet';
 import { Btn, Card, Empty, Field, Input, T, toast, s } from '../../components/ui';
 
 type Note = { id: number; text: string; listing_id: number | null };
+type PlanRow = { id: number; name: string; price_sar: number; max_listings: number; duration_days: number; featured_days: number };
+
+// الباقات المدفوعة: صفحة دفع ميسّر داخل متصفح التطبيق ثم التحقق من الخادم
+function Plans({ onPaid }: { onPaid: () => void }) {
+  const [plans, setPlans] = useState<PlanRow[]>([]);
+  const [sub, setSub] = useState<{ name: string; ends_at: string; plan_id: number } | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState<number | null>(null);
+  const load = useCallback(async () => {
+    try {
+      const [p, s, c] = await Promise.all([api<{ plans: PlanRow[] }>('/api/plans'), api<{ subscription: any }>('/api/billing/subscription'), api<{ payments: boolean }>('/api/config')]);
+      setPlans(p.plans.filter((x) => x.price_sar > 0)); setSub(s.subscription); setEnabled(!!c.payments);
+    } catch { /* */ }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const buy = async (plan: PlanRow) => {
+    setBusy(plan.id);
+    try {
+      const returnTo = ExpoLinking.createURL('billing');
+      const d = await api<{ ref: string; url: string }>('/api/billing/checkout', { method: 'POST', body: { plan_id: plan.id, return_to: returnTo } });
+      await WebBrowser.openAuthSessionAsync(d.url, returnTo);
+      // سواء عاد المستخدم تلقائياً أو أغلق الصفحة: نسأل الخادم عن الحالة الفعلية
+      const r = await api<{ payment: { status: string } }>('/api/billing/payments/' + d.ref);
+      if (r.payment.status === 'paid') { toast(`تم الدفع وتفعيل باقة ${plan.name}`); onPaid(); load(); }
+      else if (r.payment.status === 'initiated') toast('لم يكتمل الدفع. إن خُصم المبلغ ستُفعّل الباقة خلال دقائق.');
+      else toast('لم يتم الدفع');
+    } catch (e: any) { toast(e.message); }
+    setBusy(null);
+  };
+
+  if (!plans.length) return null;
+  return (
+    <>
+      <T style={s.h2}>الباقات</T>
+      {sub ? <T style={s.muted}>{`باقتك الحالية: ${sub.name} حتى ${sub.ends_at}`}</T> : null}
+      {plans.map((p) => (
+        <Card key={p.id}>
+          <View style={[row, { justifyContent: 'space-between', alignItems: 'center' }]}>
+            <T style={{ fontWeight: '700', fontSize: 16 }}>{p.name}</T>
+            <T style={{ color: C.gold, fontWeight: '800', fontSize: 18 }}>{`${p.price_sar} ر.س`}</T>
+          </View>
+          <T style={s.muted}>{`حتى ${p.max_listings} إعلان · ${p.duration_days || 30} يوماً${p.featured_days ? ` · تمييز ${p.featured_days} أيام` : ''}`}</T>
+          {enabled ? <Btn small title={sub && sub.plan_id === p.id ? 'تجديد' : 'اشترك الآن'} loading={busy === p.id} onPress={() => buy(p)} />
+            : <T style={s.muted}>الدفع الإلكتروني غير مفعّل بعد. تواصل مع الإدارة للاشتراك.</T>}
+        </Card>
+      ))}
+    </>
+  );
+}
 
 function MyCard({ l, reload }: { l: Listing; reload: () => void }) {
   const [renew, setRenew] = useState(false);
@@ -99,6 +151,8 @@ export default function Me() {
         <Btn small kind="ghost" title="تغيير كلمة السر" onPress={() => setPwd(true)} />
         <Btn small kind="danger" title="خروج" onPress={logout} />
       </View>
+
+      <Plans onPaid={load} />
 
       <T style={s.h2}>الإشعارات</T>
       {notes.length ? <Card>{notes.slice(0, 8).map((n) => <T key={n.id} style={s.muted}>{'• ' + n.text}</T>)}</Card> : <T style={s.muted}>لا توجد إشعارات.</T>}
