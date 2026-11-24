@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "Tikhome",
+    "slug": "tikhome",
+    "scheme": "tikhome",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0E1411",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0E1411"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.mjcoz.tikhome",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "لاختيار صور وفيديو العقار من جهازك",
+        "NSCameraUsageDescription": "لتصوير العقار",
+        "NSLocationWhenInUseUsageDescription": "لتحديد موقع العقار وعرض العقارات القريبة منك"
+      }
+    },
+    "android": {
+      "package": "com.mjcoz.tikhome",
+      "adaptiveIcon": {
+        "backgroundColor": "#0E1411",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-video",
+      "expo-image",
+      "expo-secure-store",
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "لاختيار صور وفيديو العقار من جهازك",
+          "cameraPermission": "لتصوير العقار"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "لتحديد موقع العقار وعرض العقارات القريبة منك"
+        }
+      ]
+    ]
+  }
+}
