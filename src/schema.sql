@@ -136,6 +136,26 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ملف المعلن العام
+ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
+
+-- الإعجابات (مستقلة عن الحفظ) والتعليقات
+CREATE TABLE IF NOT EXISTS likes (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, listing_id)
+);
+CREATE INDEX IF NOT EXISTS idx_likes_listing ON likes(listing_id);
+CREATE TABLE IF NOT EXISTS comments (
+  id SERIAL PRIMARY KEY,
+  listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_comments_listing ON comments(listing_id, id DESC);
+
 -- مدة الباقة المدفوعة بالأيام
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS duration_days INTEGER NOT NULL DEFAULT 30;
 
@@ -192,3 +212,5 @@ ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rate_hits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE password_resets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE likes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE comments ENABLE ROW LEVEL SECURITY;

@@ -86,7 +86,7 @@ function createApp({ db, storage, moyasar = null }) {
     if (!row || row.banned) return null;
     return row;
   }
-  const publicUser = (u) => u && ({ id: u.id, name: u.name, phone: u.phone, role: u.role, verified: !!u.verified, verify_requested: !!u.verify_requested });
+  const publicUser = (u) => u && ({ id: u.id, name: u.name, phone: u.phone, role: u.role, verified: !!u.verified, verify_requested: !!u.verify_requested, bio: u.bio || '' });
   // الجوال يطلب التوكن صراحةً؛ الويب يكتفي بالكوكي HttpOnly
   const authResponse = async (ctx, status, user) => {
     const token = await createSession(user.id);
@@ -103,12 +103,18 @@ function createApp({ db, storage, moyasar = null }) {
     if (!rows.length) return [];
     const ids = rows.map((l) => l.id);
     const ownerIds = [...new Set(rows.map((l) => l.owner_id))];
-    const [owners, media, saves, contacts] = await Promise.all([
+    const [owners, media, saves, contacts, likeCounts, commentCounts, myLikes] = await Promise.all([
       db.all('SELECT id, name, verified FROM users WHERE id = ANY(?)', ownerIds),
       db.all('SELECT id, listing_id, file, mime, poster FROM media WHERE listing_id = ANY(?) ORDER BY position, id', ids),
       user ? db.all('SELECT listing_id FROM saves WHERE user_id = ? AND listing_id = ANY(?)', user.id, ids) : [],
-      owner ? db.all('SELECT listing_id, COUNT(*)::int AS n FROM contacts WHERE listing_id = ANY(?) GROUP BY listing_id', ids) : []
+      owner ? db.all('SELECT listing_id, COUNT(*)::int AS n FROM contacts WHERE listing_id = ANY(?) GROUP BY listing_id', ids) : [],
+      db.all('SELECT listing_id, COUNT(*)::int AS n FROM likes WHERE listing_id = ANY(?) GROUP BY listing_id', ids),
+      db.all('SELECT listing_id, COUNT(*)::int AS n FROM comments WHERE listing_id = ANY(?) GROUP BY listing_id', ids),
+      user ? db.all('SELECT listing_id FROM likes WHERE user_id = ? AND listing_id = ANY(?)', user.id, ids) : []
     ]);
+    const likeMap = new Map(likeCounts.map((c) => [c.listing_id, c.n]));
+    const commentMap = new Map(commentCounts.map((c) => [c.listing_id, c.n]));
+    const likedSet = new Set(myLikes.map((x) => x.listing_id));
     const ownerMap = new Map(owners.map((o) => [o.id, o]));
     const savedSet = new Set(saves.map((s) => s.listing_id));
     const contactMap = new Map(contacts.map((c) => [c.listing_id, c.n]));
@@ -127,7 +133,8 @@ function createApp({ db, storage, moyasar = null }) {
         license_no: l.license_no, license_expires: l.license_expires, status: l.status,
         featured: !!(l.featured_until && l.featured_until >= t),
         media: mediaMap.get(l.id) || [], owner_name: o.name, owner_verified: !!o.verified, created_at: l.created_at,
-        saved: savedSet.has(l.id)
+        saved: savedSet.has(l.id), owner_id: l.owner_id,
+        like_count: likeMap.get(l.id) || 0, comment_count: commentMap.get(l.id) || 0, liked: likedSet.has(l.id)
       };
       if (owner) {
         out.reject_reason = l.reject_reason; out.views = l.views; out.featured_until = l.featured_until;
@@ -687,6 +694,84 @@ function createApp({ db, storage, moyasar = null }) {
     const sub = await db.one(`SELECT s.ends_at, p.name, p.id AS plan_id FROM subscriptions s JOIN plans p ON p.id = s.plan_id
       WHERE s.user_id = ? AND s.ends_at >= CURRENT_DATE ORDER BY p.max_listings DESC, s.ends_at DESC LIMIT 1`, ctx.user.id);
     ctx.json(200, { subscription: sub || null });
+  });
+
+  // --- التفاعل بأسلوب تيك توك: إعجاب، تعليقات، وملف المعلن العام
+  const publishedListing = async (id) => {
+    const l = await db.one(`SELECT l.* FROM listings l WHERE l.id = ? AND ${PUBLIC_WHERE}`, intOrNull(id));
+    if (!l) throw new HttpError(404, 'الإعلان غير متاح');
+    return l;
+  };
+  const likeCount = (id) => db.n('SELECT COUNT(*) FROM likes WHERE listing_id = ?', id);
+  route('POST', '/api/listings/:id/like', 'user', async (ctx) => {
+    const l = await publishedListing(ctx.params.id);
+    await throttle('like:' + ctx.user.id, 300, 60 * 60 * 1000);
+    await db.run('INSERT INTO likes (user_id, listing_id) VALUES (?, ?) ON CONFLICT DO NOTHING', ctx.user.id, l.id);
+    ctx.json(200, { liked: true, like_count: await likeCount(l.id) });
+  });
+  route('DELETE', '/api/listings/:id/like', 'user', async (ctx) => {
+    const id = intOrNull(ctx.params.id);
+    await db.run('DELETE FROM likes WHERE user_id = ? AND listing_id = ?', ctx.user.id, id);
+    ctx.json(200, { liked: false, like_count: await likeCount(id) });
+  });
+
+  const serializeComments = (rows, user, listingOwnerId) => rows.map((c) => ({
+    id: c.id, text: c.text, created_at: c.created_at,
+    user: { id: c.user_id, name: c.name, verified: !!c.verified },
+    is_owner: c.user_id === listingOwnerId,
+    can_delete: !!user && (user.id === c.user_id || user.id === listingOwnerId || user.role === 'admin'),
+  }));
+  route('GET', '/api/listings/:id/comments', null, async (ctx) => {
+    const l = await publishedListing(ctx.params.id);
+    const before = intOrNull(ctx.query.before);
+    const rows = await db.all(`SELECT c.*, u.name, u.verified FROM comments c JOIN users u ON u.id = c.user_id
+      WHERE c.listing_id = ? AND NOT u.banned ${before ? 'AND c.id < ?' : ''} ORDER BY c.id DESC LIMIT 30`, ...(before ? [l.id, before] : [l.id]));
+    ctx.json(200, { comments: serializeComments(rows, ctx.user, l.owner_id), comment_count: await db.n('SELECT COUNT(*) FROM comments WHERE listing_id = ?', l.id) });
+  });
+  route('POST', '/api/listings/:id/comments', 'user', async (ctx) => {
+    const l = await publishedListing(ctx.params.id);
+    const text = str(ctx.body.text, 500).replace(/\s+\n/g, '\n');
+    if (text.length < 1) throw bad('اكتب تعليقك');
+    await throttle('comment:' + ctx.user.id, 20, 10 * 60 * 1000);
+    const c = await db.one('INSERT INTO comments (listing_id, user_id, text) VALUES (?, ?, ?) RETURNING *', l.id, ctx.user.id, text);
+    if (l.owner_id !== ctx.user.id) await notify(l.owner_id, `علّق ${ctx.user.name} على إعلانك «${l.title}»: ${text.slice(0, 80)}`, l.id);
+    const [out] = serializeComments([{ ...c, name: ctx.user.name, verified: ctx.user.verified }], ctx.user, l.owner_id);
+    ctx.json(201, { comment: out, comment_count: await db.n('SELECT COUNT(*) FROM comments WHERE listing_id = ?', l.id) });
+  });
+  route('DELETE', '/api/comments/:id', 'user', async (ctx) => {
+    const c = await db.one('SELECT c.*, l.owner_id FROM comments c JOIN listings l ON l.id = c.listing_id WHERE c.id = ?', intOrNull(ctx.params.id));
+    if (!c) throw new HttpError(404, 'التعليق غير موجود');
+    const isAdmin = ctx.user.role === 'admin';
+    if (c.user_id !== ctx.user.id && c.owner_id !== ctx.user.id && !isAdmin) throw new HttpError(403, 'لا يمكنك حذف هذا التعليق');
+    await db.run('DELETE FROM comments WHERE id = ?', c.id);
+    if (isAdmin && c.user_id !== ctx.user.id) await audit(ctx.user.id, 'delete_comment', `${c.id}:${c.listing_id}`);
+    ctx.json(200, { ok: true, comment_count: await db.n('SELECT COUNT(*) FROM comments WHERE listing_id = ?', c.listing_id) });
+  });
+
+  // ملف المعلن العام: لا يكشف رقم الجوال
+  route('GET', '/api/users/:id', null, async (ctx) => {
+    const u = await db.one('SELECT id, name, verified, bio, created_at, banned FROM users WHERE id = ?', intOrNull(ctx.params.id));
+    if (!u || u.banned) throw new HttpError(404, 'الحساب غير موجود');
+    const rows = await db.all(`SELECT l.* FROM listings l WHERE l.owner_id = ? AND ${PUBLIC_WHERE}
+      AND EXISTS (SELECT 1 FROM media m WHERE m.listing_id = l.id) ORDER BY l.created_at DESC, l.id DESC LIMIT 60`, u.id);
+    const listings = await serializeMany(rows, ctx.user);
+    const ids = rows.map((r) => r.id);
+    ctx.json(200, {
+      profile: { id: u.id, name: u.name, verified: !!u.verified, bio: u.bio || '', joined: u.created_at, is_me: !!ctx.user && ctx.user.id === u.id },
+      stats: {
+        listings: listings.length,
+        likes: listings.reduce((s, l) => s + l.like_count, 0),
+        comments: listings.reduce((s, l) => s + l.comment_count, 0),
+        views: ids.length ? await db.n('SELECT COALESCE(SUM(views),0) FROM listings WHERE id = ANY(?)', ids) : 0,
+      },
+      listings,
+    });
+  });
+  route('PUT', '/api/me/profile', 'user', async (ctx) => {
+    const b = ctx.body; const name = str(b.name, 60); const bio = str(b.bio, 300);
+    if (name.length < 2) throw bad('الاسم قصير');
+    await db.run('UPDATE users SET name = ?, bio = ? WHERE id = ?', name, bio || null, ctx.user.id);
+    ctx.json(200, { user: publicUser(await db.one('SELECT * FROM users WHERE id = ?', ctx.user.id)) });
   });
 
   route('GET', '/api/plans', null, async (ctx) => ctx.json(200, { plans: await db.all('SELECT * FROM plans WHERE active ORDER BY id') }));

@@ -2,6 +2,8 @@
 // ====== التوجيه ======
 async function route() {
   const app = document.getElementById('app');
+  // إغلاق أي نافذة مفتوحة عند الانتقال لصفحة أخرى
+  document.querySelectorAll('.scrim').forEach((x) => x.remove());
   if (app._cleanup) { try { app._cleanup(); } catch { /* */ } app._cleanup = null; }
   const parts = (location.hash.replace(/^#\/?/, '') || 'feed').split('/');
   app.className = parts[0] === 'map' ? 'full' : '';
@@ -14,6 +16,7 @@ async function route() {
     case 'saved': return A.renderSaved(app);
     case 'me': return A.renderMe(app);
     case 'login': return A.renderLogin(app);
+    case 'u': return A.renderProfile(app, Number(parts[1]) || 0);
     default: location.hash = '#/feed';
   }
 }

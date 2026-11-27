@@ -66,7 +66,7 @@ npm install
 DATABASE_URL=postgresql://postgres@localhost:5432/tikhome ADMIN_PASSWORD='StrongPass#1' npm start
 ```
 
-بدون `SUPABASE_URL` تُحفظ الملفات محلياً في `data/uploads`. الاختبارات (41 فحصاً على Postgres حقيقي):
+بدون `SUPABASE_URL` تُحفظ الملفات محلياً في `data/uploads`. الاختبارات (48 فحصاً على Postgres حقيقي):
 
 ```bash
 TEST_DATABASE_URL=postgresql://postgres@localhost:5432/postgres npm test

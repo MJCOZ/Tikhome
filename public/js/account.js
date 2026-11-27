@@ -33,6 +33,54 @@ A.renderLogin = function renderLogin(app) {
   app.append(h('div', { class: 'page' }, title, h('div', { class: 'muted' }, 'رقم جوالك لا يظهر للباحثين، ويتم التواصل عبر واتساب برسالة جاهزة.'), form));
 };
 
+// ====== ملف المعلن العام بأسلوب تيك توك ======
+A.renderProfile = async function renderProfile(app, id) {
+  app.replaceChildren();
+  const page = h('div', { class: 'page profile' }, h('div', { class: 'muted' }, 'جارٍ التحميل...'));
+  app.append(page);
+  let d;
+  try { d = await A.api('/api/users/' + id); } catch (e) {
+    page.replaceChildren(h('div', { class: 'empty' }, h('b', {}, 'الحساب غير موجود'), h('button', { class: 'btn sec', onclick: () => history.back() }, 'رجوع')));
+    return;
+  }
+  const p = d.profile; const st = d.stats;
+  const stat = (n, label) => h('div', { class: 'pstat' }, h('b', {}, A.compact(n)), h('small', {}, label));
+  const tile = (l) => {
+    const m = l.media[0]; const src = m && (l.media_type === 'photos' ? m.url : m.poster);
+    return h('button', { class: 'ptile', type: 'button', 'aria-label': l.title, onclick: () => { location.hash = '#/l/' + l.id; } },
+      src ? h('img', { src, alt: '', loading: 'lazy' }) : h('div', { class: 'ph' }),
+      l.media_type === 'video' ? h('span', { class: 'pvid' }, A.icon('play')) : null,
+      h('div', { class: 'pmeta' }, h('span', {}, A.icon('heart'), A.compact(l.like_count)), h('span', {}, A.compact(l.comment_count), ' 💬')),
+      h('div', { class: 'pprice' }, A.shortPrice ? A.shortPrice(l.price) : l.price));
+  };
+  page.replaceChildren(
+    h('div', { class: 'phead' },
+      h('button', { class: 'btn ghost sm pback', type: 'button', onclick: () => (history.length > 1 ? history.back() : (location.hash = '#/feed')) }, '→ رجوع'),
+      A.avatar(p.name, 'xl'),
+      h('h1', {}, p.name, p.verified ? h('span', { class: 'vbadge' }, '✓') : null),
+      p.verified ? h('div', { class: 'tag g' }, 'مالك موثّق') : null,
+      p.bio ? h('div', { class: 'pbio' }, p.bio) : null,
+      h('div', { class: 'pstats' }, stat(st.listings, 'إعلان'), stat(st.likes, 'إعجاب'), stat(st.comments, 'تعليق'), stat(st.views, 'مشاهدة')),
+      h('div', { class: 'row', style: { justifyContent: 'center' } },
+        p.is_me ? h('button', { class: 'btn sec sm', onclick: () => A.editProfile(() => A.renderProfile(app, id)) }, 'تعديل الملف') : null,
+        h('button', { class: 'btn ghost sm', onclick: async () => {
+          const url = location.origin + '/#/u/' + p.id;
+          try { if (navigator.share) await navigator.share({ title: p.name, url }); else { await navigator.clipboard.writeText(url); A.toast('تم نسخ رابط الملف'); } } catch { /* */ }
+        } }, 'مشاركة الملف'))),
+    d.listings.length ? h('div', { class: 'pgrid' }, d.listings.map(tile))
+      : h('div', { class: 'muted', style: { textAlign: 'center', padding: '30px 0' } }, p.is_me ? 'لم تنشر إعلاناً بعد.' : 'لا توجد إعلانات منشورة حالياً.'));
+};
+
+A.editProfile = function editProfile(done) {
+  const name = h('input', { maxlength: 60, value: A.user.name });
+  const bio = h('textarea', { rows: 3, maxlength: 300, placeholder: 'مثال: مكتب عقاري في شمال الرياض، شقق وفلل للإيجار والبيع' });
+  bio.value = A.user.bio || '';
+  const s = A.sheet(h('h3', {}, 'تعديل الملف العام'), A.field('الاسم الظاهر', name), A.field('نبذة (تظهر في ملفك)', bio),
+    h('button', { class: 'btn', onclick: async () => {
+      try { await A.api('/api/me/profile', { method: 'PUT', body: { name: name.value, bio: bio.value } }); await A.refreshMe(); A.toast('تم الحفظ'); s.close(); if (done) done(); } catch (e) { A.toast(e.message); }
+    } }, 'حفظ'));
+};
+
 // ====== نسيت كلمة السر: التواصل مع الدعم ثم إدخال الرمز ======
 A.renderForgot = async function renderForgot(app, initialPhone = '') {
   app.replaceChildren();
@@ -76,7 +124,7 @@ function myCard(l, reload) {
   const thumb = thumbUrl ? h('img', { src: thumbUrl, alt: '', style: { width: '64px', height: '84px', objectFit: 'cover', borderRadius: '10px' } }) : null;
   return h('div', { class: 'card' },
     h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('b', {}, `${l.title} · ${l.district}`), h('span', { class: 'status ' + l.status }, A.statusLabel(l.status))),
-    h('div', { class: 'row' }, thumb, h('div', { class: 'muted' }, A.fmtPrice(l), h('br'), `المشاهدات: ${l.views ?? 0} · طلبات التواصل: ${l.contacts ?? 0}`, h('br'), `ينتهي الترخيص: ${l.license_expires}`)),
+    h('div', { class: 'row' }, thumb, h('div', { class: 'muted' }, A.fmtPrice(l), h('br'), `المشاهدات: ${l.views ?? 0} · الإعجابات: ${l.like_count ?? 0} · التعليقات: ${l.comment_count ?? 0} · طلبات التواصل: ${l.contacts ?? 0}`, h('br'), `ينتهي الترخيص: ${l.license_expires}`)),
     l.status === 'rejected' && l.reject_reason ? h('div', { class: 'err' }, 'سبب الرفض: ' + l.reject_reason) : null,
     l.status === 'suspended' ? h('div', { class: 'err' }, 'أوقفت الإدارة هذا الإعلان. تواصل مع الدعم لمعرفة السبب.') : null,
     l.status === 'draft' && !l.media.length ? h('div', { class: 'muted' }, 'الإعلان بلا فيديو أو صور. احذفه وأنشئ إعلاناً جديداً، أو أكمل الرفع من التطبيق.') : null,
@@ -103,6 +151,8 @@ A.renderMe = async function renderMe(app) {
         A.user.role === 'admin' ? h('a', { class: 'btn sm', href: '/admin' }, 'لوحة التحكم') : null,
         !A.user.verified && !A.user.verify_requested ? h('button', { class: 'btn sec sm', onclick: async () => { await A.api('/api/me/verify-request', { method: 'POST' }); A.toast('وصل طلب التوثيق'); load(); } }, 'اطلب توثيق حسابي') : null,
         A.user.verify_requested && !A.user.verified ? h('span', { class: 'tag' }, 'طلب التوثيق قيد المراجعة') : null,
+        h('button', { class: 'btn sm', onclick: () => (location.hash = '#/u/' + A.user.id) }, 'ملفي العام'),
+        h('button', { class: 'btn sec sm', onclick: () => A.editProfile(load) }, 'تعديل الملف'),
         h('button', { class: 'btn ghost sm', onclick: pwd }, 'تغيير كلمة السر'),
         h('button', { class: 'btn danger sm', onclick: async () => { await A.api('/api/auth/logout', { method: 'POST' }); A.user = null; A.renderTabs(); location.hash = '#/feed'; } }, 'خروج')),
       plansSection(),

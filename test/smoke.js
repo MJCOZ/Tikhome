@@ -156,6 +156,35 @@ async function upload(who, id, buf, mime) {
     r = await call('owner', 'POST', `/api/listings/${vid}/media`, { poster: newPoster });
     assert.equal(r.status, 201); assert.ok(r.data.media[0].poster.endsWith(newPoster)); ok('استبدال الصورة المصغّرة لفيديو موجود');
 
+    // التفاعل: إعجاب وتعليقات وملف المعلن
+    r = await call('admin', 'POST', '/api/listings', { kind: 'rent', title: 'شقة للتفاعل', city: 'الرياض', district: 'الربيع', price: 30000, media_type: 'photos', license_no: '7100077777', license_expires: exp });
+    const sid = r.data.listing.id;
+    await upload('admin', sid, png, 'image/png');
+    r = await call('admin', 'POST', `/api/listings/${sid}/submit`); assert.equal(r.data.status, 'published');
+    r = await call('anon', 'POST', `/api/listings/${sid}/like`); assert.equal(r.status, 401);
+    r = await call('owner', 'POST', `/api/listings/${sid}/like`); assert.deepEqual(r.data, { liked: true, like_count: 1 });
+    r = await call('owner', 'POST', `/api/listings/${sid}/like`); assert.equal(r.data.like_count, 1);
+    r = await call('mobile2', 'POST', '/api/auth/register', { name: 'زائر', phone: '0555555559', password: 'Visitor#123' });
+    r = await call('mobile2', 'POST', `/api/listings/${sid}/like`); assert.equal(r.data.like_count, 2); ok('الإعجاب مرة واحدة لكل مستخدم');
+    r = await call('owner', 'GET', '/api/listings/' + sid); assert.equal(r.data.listing.liked, true); assert.equal(r.data.listing.like_count, 2);
+    r = await call('mobile2', 'DELETE', `/api/listings/${sid}/like`); assert.equal(r.data.like_count, 1); ok('إلغاء الإعجاب');
+    r = await call('owner', 'POST', `/api/listings/${sid}/comments`, { text: '' }); assert.equal(r.status, 400);
+    r = await call('owner', 'POST', `/api/listings/${sid}/comments`, { text: 'كم رسوم الصيانة؟' }); assert.equal(r.status, 201); assert.equal(r.data.comment_count, 1);
+    const cm1 = r.data.comment.id;
+    r = await call('mobile2', 'POST', `/api/listings/${sid}/comments`, { text: 'هل يوجد موقف خاص؟' }); const cm2 = r.data.comment.id;
+    r = await call('anon', 'GET', `/api/listings/${sid}/comments`); assert.equal(r.data.comments.length, 2); assert.equal(r.data.comments[0].can_delete, false);
+    assert.ok(!JSON.stringify(r.data).includes('0555555551')); ok('التعليقات تظهر بدون أرقام الجوال');
+    r = await call('mobile2', 'DELETE', '/api/comments/' + cm1); assert.equal(r.status, 403);
+    r = await call('mobile2', 'DELETE', '/api/comments/' + cm2); assert.equal(r.status, 200); assert.equal(r.data.comment_count, 1); ok('الكاتب يحذف تعليقه فقط');
+    r = await call('admin', 'DELETE', '/api/comments/' + cm1); assert.equal(r.status, 200); ok('صاحب الإعلان والمدير يحذفان أي تعليق');
+    r = await call('admin', 'GET', '/api/notifications'); assert.ok(r.data.notifications.some((n) => n.text.includes('علّق')));
+    r = await call('admin', 'GET', '/api/me'); const adminId = r.data.user.id;
+    r = await call('anon', 'GET', '/api/users/' + adminId);
+    assert.equal(r.data.profile.name, 'المدير'); assert.equal(r.data.stats.likes, 1); assert.ok(r.data.listings.some((x) => x.id === sid));
+    assert.ok(!JSON.stringify(r.data).includes('0500000000')); ok('ملف المعلن العام بإحصائياته بدون رقم الجوال');
+    r = await call('admin', 'PUT', '/api/me/profile', { name: 'مكتب تيك هوم', bio: 'عقارات مختارة في الرياض' });
+    assert.equal(r.data.user.bio, 'عقارات مختارة في الرياض'); ok('تعديل الاسم والنبذة');
+
     // استعادة كلمة السر برمز يصدره المدير
     r = await call('owner', 'POST', '/api/admin/users/1/reset-code'); assert.equal(r.status, 403);
     const owner = (await call('admin', 'GET', '/api/admin/users')).data.users.find((u) => u.phone === '0555555551');

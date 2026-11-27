@@ -67,6 +67,66 @@ A.openDetails = function openDetails(l) {
       h('button', { class: 'btn sec sm', onclick: () => { s.close(); A.openReport(l); } }, 'إبلاغ عن الإعلان')));
 };
 
+// ====== التفاعل بأسلوب تيك توك ======
+A.compact = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K' : String(n || 0));
+A.avatar = (name, cls = '') => h('span', { class: 'avatar ' + cls, 'aria-hidden': 'true' }, String(name || '؟').trim().charAt(0));
+
+A.toggleLike = async function toggleLike(l, btn, count) {
+  if (!A.requireLogin('سجّل الدخول للإعجاب بالعقار')) return;
+  const was = l.liked;
+  l.liked = !was; l.like_count += was ? -1 : 1; btn.classList.toggle('on', l.liked); count.textContent = A.compact(l.like_count);
+  try {
+    const d = await A.api(`/api/listings/${l.id}/like`, { method: was ? 'DELETE' : 'POST' });
+    l.liked = d.liked; l.like_count = d.like_count;
+  } catch (e) { l.liked = was; A.toast(e.message); }
+  btn.classList.toggle('on', l.liked); count.textContent = A.compact(l.like_count);
+};
+
+A.timeAgo = (t) => {
+  const s = Math.max(1, (Date.now() - new Date(t)) / 1000);
+  if (s < 60) return 'الآن'; if (s < 3600) return `قبل ${Math.floor(s / 60)} د`;
+  if (s < 86400) return `قبل ${Math.floor(s / 3600)} س`; if (s < 2592000) return `قبل ${Math.floor(s / 86400)} يوم`;
+  return new Date(t).toISOString().slice(0, 10);
+};
+
+A.openComments = function openComments(l, onCount) {
+  const list = h('div', { class: 'clist' }, h('div', { class: 'muted' }, 'جارٍ التحميل...'));
+  const title = h('h3', {}, 'التعليقات');
+  const setCount = (n) => { l.comment_count = n; title.textContent = `التعليقات (${n})`; if (onCount) onCount(n); };
+  const row = (c) => h('div', { class: 'comment' },
+    h('button', { class: 'cav', type: 'button', onclick: () => { s.close(); location.hash = '#/u/' + c.user.id; } }, A.avatar(c.user.name)),
+    h('div', { class: 'cbody' },
+      h('div', { class: 'chead' }, h('b', {}, c.user.name), c.user.verified ? h('span', { class: 'vbadge', title: 'موثّق' }, '✓') : null,
+        c.is_owner ? h('span', { class: 'tag g sm' }, 'المعلن') : null, h('span', { class: 'muted' }, A.timeAgo(c.created_at))),
+      h('div', { class: 'ctext' }, c.text)),
+    c.can_delete ? h('button', { class: 'cdel', type: 'button', 'aria-label': 'حذف التعليق', onclick: async (e) => {
+      if (!confirm('حذف التعليق؟')) return;
+      try { const d = await A.api('/api/comments/' + c.id, { method: 'DELETE' }); e.currentTarget.closest('.comment').remove(); setCount(d.comment_count); } catch (ex) { A.toast(ex.message); }
+    } }, '×') : null);
+  const input = h('textarea', { rows: 1, maxlength: 500, placeholder: A.user ? 'أضف تعليقاً...' : 'سجّل الدخول لإضافة تعليق', 'aria-label': 'تعليقك' });
+  const send = h('button', { class: 'btn sm', type: 'submit' }, 'نشر');
+  const form = h('form', { class: 'cform' }, input, send);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!A.requireLogin('سجّل الدخول لإضافة تعليق')) { s.close(); return; }
+    const text = input.value.trim(); if (!text) return;
+    send.disabled = true;
+    try {
+      const d = await A.api(`/api/listings/${l.id}/comments`, { method: 'POST', body: { text } });
+      input.value = ''; list.querySelector('.cempty')?.remove(); list.prepend(row(d.comment)); setCount(d.comment_count);
+    } catch (ex) { A.toast(ex.message); }
+    send.disabled = false;
+  });
+  const s = A.sheet(title, list, form);
+  (async () => {
+    try {
+      const d = await A.api(`/api/listings/${l.id}/comments`);
+      setCount(d.comment_count);
+      list.replaceChildren(...(d.comments.length ? d.comments.map(row) : [h('div', { class: 'muted cempty' }, 'لا توجد تعليقات بعد. كن أول من يسأل عن العقار.')]));
+    } catch (e) { list.replaceChildren(h('div', { class: 'err' }, e.message)); }
+  })();
+};
+
 A.toggleSave = async function toggleSave(l, btn) {
   if (!A.requireLogin('سجّل الدخول لحفظ العقار')) return;
   try {
@@ -99,20 +159,31 @@ A.buildItem = function buildItem(l, { observe } = {}) {
   } else el.append(h('div', { class: 'ph' }));
   el.append(h('div', { class: 'shade' }));
 
-  const saveBtn = h('button', { class: 'round' + (l.saved ? ' on' : ''), 'aria-label': 'حفظ العقار', onclick: () => A.toggleSave(l, saveBtn) }, A.icon('heart'));
-  const side = h('div', { class: 'side' }, saveBtn,
-    h('button', { class: 'round', 'aria-label': 'عرض على الخريطة', onclick: () => { A.mapFocus = l; location.hash = '#/map'; } }, A.icon('pin')),
-    h('button', { class: 'round', 'aria-label': 'مشاركة', onclick: () => A.share(l) }, A.icon('share')),
-    video ? h('button', { class: 'round', 'aria-label': 'تشغيل الصوت', onclick: (e) => { video.muted = !video.muted; e.currentTarget.style.opacity = video.muted ? 1 : .6; } }, h('span', { style: { fontSize: '18px' } }, '♪')) : null);
+  const sbtn = (label, icon, onclick, cls = '', count = null) => {
+    const c = count == null ? null : h('small', {}, A.compact(count));
+    const b = h('button', { class: 'sbtn ' + cls, type: 'button', 'aria-label': label }, h('span', { class: 'round' }, icon), c || h('small', {}, label));
+    b.addEventListener('click', () => onclick(b, c));
+    return b;
+  };
+  const side = h('div', { class: 'side' },
+    h('button', { class: 'sbtn owner', type: 'button', 'aria-label': 'ملف المعلن ' + (l.owner_name || ''), onclick: () => { location.hash = '#/u/' + l.owner_id; } },
+      A.avatar(l.owner_name, 'lg'), l.owner_verified ? h('span', { class: 'vbadge abs' }, '✓') : null),
+    sbtn('إعجاب', A.icon('heart'), (b, c) => A.toggleLike(l, b, c), 'like' + (l.liked ? ' on' : ''), l.like_count || 0),
+    sbtn('تعليق', A.icon('chat'), (b, c) => A.openComments(l, (n) => { c.textContent = A.compact(n); }), '', l.comment_count || 0),
+    sbtn('حفظ', A.icon('bookmark'), (b) => A.toggleSave(l, b), 'save' + (l.saved ? ' on' : '')),
+    sbtn('الموقع', A.icon('pin'), () => { A.mapFocus = l; location.hash = '#/map'; }),
+    sbtn('مشاركة', A.icon('share'), () => A.share(l)));
+  if (video) el.append(h('button', { class: 'round mute', type: 'button', 'aria-label': 'تشغيل الصوت', onclick: (e) => { video.muted = !video.muted; e.currentTarget.classList.toggle('on', !video.muted); e.currentTarget.textContent = video.muted ? '🔇' : '🔊'; } }, '🔇'));
 
   const info = h('div', { class: 'info' },
+    h('button', { class: 'ownerline', type: 'button', onclick: () => { location.hash = '#/u/' + l.owner_id; } }, '@' + (l.owner_name || 'مالك'), l.owner_verified ? h('span', { class: 'vbadge' }, '✓') : null),
     h('div', { class: 'price' }, A.fmtPrice(l), l.featured ? h('small', {}, 'مميز') : null),
     h('div', { style: { fontSize: '17px', fontWeight: 600 } }, `${l.title} · ${l.district}`),
     h('div', { class: 'muted' }, [l.area && l.area + ' م²', l.beds && l.beds + ' غرف', A.floorLabel(l.floor)].filter(Boolean).join(' · ')),
     h('div', { class: 'row' },
       A.entranceLabel(l.entrance) ? h('span', { class: 'tag g' }, A.entranceLabel(l.entrance)) : null,
       h('span', { class: 'tag' }, '✓ إعلان مرخص ' + l.license_no),
-      l.owner_verified ? h('span', { class: 'tag g' }, 'مالك موثّق') : null),
+      null),
     h('div', { class: 'row', style: { marginTop: '4px' } },
       h('button', { class: 'btn', style: { flex: 1 }, onclick: () => A.openContact(l) }, A.icon('chat'), 'تواصل عبر واتساب'),
       h('button', { class: 'btn ghost', onclick: () => A.openDetails(l) }, 'التفاصيل')));

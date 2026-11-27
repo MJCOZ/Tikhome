@@ -121,3 +121,50 @@ a{color:var(--acc-soft)}
 .dots{top:calc(84px + env(safe-area-inset-top))}
 .page{padding-top:calc(20px + env(safe-area-inset-top))}
 #toast{top:calc(16px + env(safe-area-inset-top))}
+
+/* ===== التفاعل وملف المعلن (أسلوب تيك توك) ===== */
+.side{bottom:150px;gap:6px;align-items:center}
+.sbtn{display:flex;flex-direction:column;align-items:center;gap:2px;color:#fff;position:relative}
+.sbtn small{font-size:11px;font-weight:700;text-shadow:0 1px 3px #000a;min-height:14px}
+.sbtn .round{width:44px;height:44px}
+.sbtn.like.on .round svg{fill:var(--red);stroke:var(--red)}
+.sbtn.save.on .round svg{fill:var(--gold);stroke:var(--gold)}
+.sbtn.owner{margin-bottom:6px}
+.round.on svg{fill:none;stroke:var(--ink)}
+.avatar{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--acc),#0f6e57);color:#fff;font-weight:800;font-size:15px;flex:none}
+.avatar.lg{width:46px;height:46px;font-size:20px;border:2px solid #fff}
+.avatar.xl{width:92px;height:92px;font-size:40px;border:3px solid var(--panel2)}
+.vbadge{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#20a4f3;color:#fff;font-size:10px;font-weight:900;margin-inline-start:4px;vertical-align:middle}
+.vbadge.abs{position:absolute;bottom:2px;left:-2px;margin:0;border:2px solid #000}
+.ownerline{align-self:flex-start;font-weight:800;font-size:15px;color:#fff;text-shadow:0 1px 3px #000a;display:inline-flex;align-items:center}
+.mute{position:absolute;top:calc(64px + env(safe-area-inset-top));left:12px;z-index:2;width:40px;height:40px;font-size:18px}
+/* نافذة التعليقات */
+.clist{display:flex;flex-direction:column;gap:14px;min-height:120px;max-height:52vh;overflow-y:auto;padding:4px 0}
+.comment{display:flex;gap:10px;align-items:flex-start}
+.cav{flex:none}
+.cbody{flex:1;min-width:0}
+.chead{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px}
+.ctext{font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-word;margin-top:2px}
+.cdel{width:28px;height:28px;border-radius:14px;color:var(--mute2);font-size:18px;flex:none}
+.cdel:hover{background:var(--panel2);color:#ffb4ae}
+.tag.sm{padding:2px 8px;font-size:11px}
+.cform{display:flex;gap:8px;align-items:flex-end;border-top:1px solid #2a352f;padding-top:10px}
+.cform textarea{flex:1;background:var(--bg);border:1px solid #33423a;border-radius:18px;padding:10px 14px;resize:none;max-height:120px;min-height:44px}
+/* ملف المعلن */
+.profile .phead{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding-bottom:16px;position:relative}
+.profile h1{display:flex;align-items:center;margin:6px 0 0}
+.pback{position:absolute;top:0;right:0}
+.pbio{color:var(--mute);font-size:14px;line-height:1.7;max-width:420px;white-space:pre-wrap}
+.pstats{display:flex;gap:22px;margin:6px 0}
+.pstat{display:flex;flex-direction:column;align-items:center}
+.pstat b{font-size:18px}
+.pstat small{color:var(--mute2);font-size:12px}
+.pgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;margin:0 -16px}
+.ptile{position:relative;aspect-ratio:3/4;background:var(--panel2);overflow:hidden}
+.ptile img,.ptile .ph{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.pmeta{position:absolute;bottom:4px;right:6px;left:6px;display:flex;justify-content:space-between;color:#fff;font-size:11px;font-weight:700;text-shadow:0 1px 3px #000}
+.pmeta span{display:inline-flex;align-items:center;gap:2px}
+.pmeta svg{width:12px;height:12px;fill:#fff;stroke:#fff}
+.pvid{position:absolute;top:6px;left:6px}
+.pvid svg{width:14px;height:14px;fill:#fff}
+.pprice{position:absolute;top:6px;right:6px;background:#000a;color:var(--gold);font-size:11px;font-weight:800;padding:2px 7px;border-radius:8px}
