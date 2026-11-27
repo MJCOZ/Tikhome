@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 
 // رابط الخادم على Vercel، يُضبط في ملف .env (EXPO_PUBLIC_API_URL)
-export const API_URL = (process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/+$/, '');
+export const API_URL = (process.env.EXPO_PUBLIC_API_URL || 'https://tikhome.vercel.app').replace(/\/+$/, '');
 const TOKEN_KEY = 'tikhome_token';
 
 let token: string | null = null;
