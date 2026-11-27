@@ -18,6 +18,8 @@ async function route() {
   }
 }
 window.addEventListener('hashchange', route);
+// إذا رُفض مفتاح خرائط Google نعيد الرسم بالخريطة البديلة
+window.addEventListener('tk-gm-failed', () => route());
 (async () => {
   try { A.config = await A.api('/api/config'); } catch { /* القيم الافتراضية */ }
   await A.refreshMe();

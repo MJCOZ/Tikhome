@@ -9,23 +9,27 @@ A.buildingView = function buildingView(floor) {
   return h('div', { class: 'building', 'aria-label': floor == null ? 'الدور غير محدد' : A.floorLabel(floor) }, rows);
 };
 
-A.renderMap = function renderMap(app) {
+A.renderMap = async function renderMap(app) {
   app.replaceChildren();
-  if (typeof L === 'undefined') {
-    app.append(h('div', { class: 'empty' }, h('div', { style: { fontWeight: 700 } }, 'تعذّر تحميل الخريطة'), h('div', {}, 'تحقق من الاتصال بالإنترنت ثم أعد المحاولة.')));
-    return;
-  }
-  const wrap = h('div', { class: 'mapwrap' }, h('div', { id: 'map' }));
+  const mapEl = h('div', { id: 'map' });
   const cardHost = h('div');
-  app.append(wrap, h('div', { class: 'maptop' },
+  app.append(h('div', { class: 'mapwrap' }, mapEl), h('div', { class: 'maptop' },
     h('button', { class: 'chip', onclick: () => A.openFilters(load) }, 'تصفية'),
     h('button', { class: 'chip', onclick: locate }, 'موقعي')), cardHost);
 
   const focus = A.mapFocus; A.mapFocus = null;
-  const map = L.map('map', { zoomControl: false }).setView(focus && focus.lat ? [focus.lat, focus.lng] : [24.7136, 46.6753], focus && focus.lat ? 15 : 11);
-  A.addBaseLayers(map);
-  const layer = L.layerGroup().addTo(map);
-  let selected = focus ? focus.id : null; let data = [];
+  let selected = focus ? focus.id : null; let data = []; let map = null; let alive = true;
+  app._cleanup = () => { alive = false; if (map) map.remove(); };
+  try {
+    map = await A.createMap(mapEl, {
+      lat: focus && focus.lat != null ? focus.lat : 24.7136, lng: focus && focus.lng != null ? focus.lng : 46.6753,
+      zoom: focus && focus.lat != null ? 15 : 11, onIdle: () => load(),
+    });
+  } catch {
+    mapEl.replaceWith(h('div', { class: 'empty' }, h('div', { style: { fontWeight: 700 } }, 'تعذّر تحميل الخريطة'), h('div', {}, 'تحقق من الاتصال بالإنترنت ثم أعد المحاولة.')));
+    return;
+  }
+  if (!alive) { map.remove(); return; }
 
   function showCard(l) {
     selected = l.id; draw();
@@ -40,31 +44,28 @@ A.renderMap = function renderMap(app) {
           l.lat != null ? h('a', { class: 'btn sec sm', href: A.googleMapsUrl(l), target: '_blank', rel: 'noopener' }, 'افتح في Google Maps') : null))));
   }
   function draw() {
-    layer.clearLayers();
+    map.clearPins();
     for (const l of data) {
       if (l.lat == null) continue;
-      const short = l.price >= 1e6 ? (l.price / 1e6).toFixed(1) + ' م' : l.price >= 1000 ? Math.round(l.price / 1000) + ' ألف' : String(l.price);
-      const node = h('div', { class: 'pin' + (l.id === selected ? ' on' : '') }, short);
-      const icon = L.divIcon({ className: '', html: node, iconSize: [0, 0] });
-      const m = L.marker([l.lat, l.lng], { icon, keyboard: true, title: `${l.title} ${l.district}` }).addTo(layer);
-      m.on('click', () => showCard(l));
+      const node = h('div', { class: 'pin' + (l.id === selected ? ' on' : ''), title: `${l.title} ${l.district}`, role: 'button', tabindex: '0' }, A.shortPrice(l.price));
+      node.addEventListener('keydown', (e) => { if (e.key === 'Enter') showCard(l); });
+      map.addPin(l.lat, l.lng, node, () => showCard(l));
     }
   }
   async function load() {
-    const b = map.getBounds();
-    const qs = new URLSearchParams({ ...A.filters, bbox: [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].join(','), limit: 50 });
+    const b = map.bounds(); if (!b) return;
+    const qs = new URLSearchParams({ ...A.filters, bbox: b.join(','), limit: 50 });
     try {
       data = (await A.api('/api/listings?' + qs)).listings;
       if (focus && !data.find((x) => x.id === focus.id)) data.unshift(focus);
+      if (!alive) return;
       draw();
       const sel = data.find((l) => l.id === selected); if (sel) showCard(sel);
     } catch (e) { A.toast(e.message); }
   }
   function locate() {
     if (!navigator.geolocation) return A.toast('الموقع غير مدعوم في متصفحك');
-    navigator.geolocation.getCurrentPosition((p) => map.setView([p.coords.latitude, p.coords.longitude], 14), () => A.toast('لم نحصل على إذن الموقع'));
+    navigator.geolocation.getCurrentPosition((p) => map && map.setView(p.coords.latitude, p.coords.longitude, 14), () => A.toast('لم نحصل على إذن الموقع'));
   }
-  map.on('moveend', load);
-  load();
-  app._cleanup = () => map.remove();
+  if (map.kind === 'leaflet') load();
 };

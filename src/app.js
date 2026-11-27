@@ -338,7 +338,9 @@ function createApp({ db, storage, moyasar = null }) {
   // --- الإعلانات (عام)
   route('GET', '/api/config', null, async (ctx) => {
     const s = await db.settings();
-    ctx.json(200, { max_video_mb: Number(s.max_video_mb), max_photos: Number(s.max_photos), max_photo_mb: MAX_PHOTO_MB, payments: moyasar.enabled });
+    ctx.json(200, { max_video_mb: Number(s.max_video_mb), max_photos: Number(s.max_photos), max_photo_mb: MAX_PHOTO_MB, payments: moyasar.enabled,
+      // مفتاح متصفح عام بطبيعته؛ يُحمى بتقييده على نطاق الموقع من Google Cloud
+      google_maps_key: process.env.GOOGLE_MAPS_API_KEY || null });
   });
   route('GET', '/api/listings', null, async (ctx) => ctx.json(200, { listings: await searchListings(ctx.query, ctx.user) }));
   route('GET', '/api/listings/:id', null, async (ctx) => {

@@ -48,19 +48,18 @@ A.renderPublish = function renderPublish(app) {
 
   // ----- الموقع على الخريطة -----
   const mapBox = h('div', { class: 'minimap' });
-  let marker = null; let mini = null;
-  setTimeout(() => {
-    if (typeof L === 'undefined') { mapBox.append(h('div', { class: 'empty', style: { position: 'static', height: '100%' } }, 'الخريطة غير متاحة الآن')); return; }
-    mini = L.map(mapBox, { zoomControl: true }).setView([24.7136, 46.6753], 11);
-    A.addBaseLayers(mini);
-    mini.on('click', (e) => setPoint(e.latlng.lat, e.latlng.lng));
-    app._cleanup = () => mini.remove();
+  let mini = null; let marker = null;
+  setTimeout(async () => {
+    try {
+      mini = await A.createMap(mapBox, { lat: 24.7136, lng: 46.6753, zoom: 11, onClick: (lat, lng) => setPoint(lat, lng) });
+      app._cleanup = () => mini.remove();
+    } catch { mapBox.append(h('div', { class: 'empty', style: { position: 'static', height: '100%' } }, 'الخريطة غير متاحة الآن')); }
   }, 0);
   function setPoint(lat, lng) {
     f.lat = Number(lat.toFixed(6)); f.lng = Number(lng.toFixed(6));
     if (!mini) return;
-    if (marker) marker.setLatLng([lat, lng]); else marker = L.marker([lat, lng]).addTo(mini);
-    mini.setView([lat, lng], Math.max(mini.getZoom(), 15));
+    mini.clearPins(); marker = mini.addPin(lat, lng, h('div', { class: 'pin on' }, 'موقع العقار'));
+    mini.setView(lat, lng, 16);
   }
 
   // ----- الإرسال -----
