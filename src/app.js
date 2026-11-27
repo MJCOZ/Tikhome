@@ -31,6 +31,20 @@ function magicOk(mime, buf) {
   return false;
 }
 
+// شرح عربي لأشهر أخطاء الاتصال بقاعدة البيانات (لا يتضمن الرابط أو كلمة السر)
+function describeDbError(e) {
+  const code = e && (e.code || e.errno) ? String(e.code || e.errno) : '';
+  const msg = String((e && e.message) || e || '');
+  const hint =
+    code === '28P01' || /password authentication failed/i.test(msg) ? 'كلمة السر في DATABASE_URL غير صحيحة'
+      : /Tenant or user not found/i.test(msg) ? 'اسم المستخدم في DATABASE_URL يجب أن يكون postgres.<رمز المشروع> (رابط Shared pooler)'
+        : code === 'ENOTFOUND' || code === 'EAI_AGAIN' ? 'عنوان الخادم في DATABASE_URL غير صحيح'
+          : code === 'ETIMEDOUT' || code === 'ECONNREFUSED' || code === 'ENETUNREACH' || code === 'EHOSTUNREACH' ? 'تعذّر الوصول للخادم: استخدم رابط Transaction pooler بالمنفذ 6543 وليس الاتصال المباشر'
+            : /Invalid URL|ERR_INVALID_URL/i.test(msg + code) ? 'الرابط غير صالح: تأكد من استبدال [YOUR-DATABASE-PASSWORD] وعدم وجود رموز خاصة في كلمة السر'
+              : 'خطأ غير متوقع في قاعدة البيانات';
+  return { error: hint, code: code || undefined, detail: msg.replace(/postgres(ql)?:\/\/\S+/gi, '[url]').slice(0, 200) };
+}
+
 function createApp({ db, storage, moyasar = null }) {
   moyasar = moyasar || require('./moyasar').createMoyasar();
   // ------------------------------------------------------------ أدوات
@@ -864,13 +878,21 @@ function createApp({ db, storage, moyasar = null }) {
       // استثناء إشعارات ميسّر: لا تغيّر شيئاً بنفسها، فقط تطلب إعادة التحقق من خادم ميسّر
       const providerHook = url.pathname === '/api/billing/callback' || url.pathname === '/api/billing/webhook';
       if (req.method !== 'GET' && !providerHook && req.headers['x-requested-with'] !== 'fetch') throw new HttpError(403, 'طلب غير مسموح');
+      // فحص الحالة: يعرض سبب فشل الاتصال بوضوح (بدون أي أسرار) لتسهيل الإعداد
+      if (url.pathname === '/api/health') {
+        const out = { ok: true, storage: storage.kind, db: 'ok' };
+        try { await db.ready(); } catch (e) { out.ok = false; out.db = describeDbError(e); console.error('health db', e); }
+        if (out.db === 'ok' && storage.kind === 'supabase') {
+          try { await storage.ready(); out.bucket = 'ok'; } catch (e) { out.ok = false; out.bucket = String(e.message || e).slice(0, 200); console.error('health storage', e); }
+        }
+        return sendJson(res, out.ok ? 200 : 500, out);
+      }
       await db.ready();
       if (url.pathname === '/api/cron/sweep') {
         const secret = process.env.CRON_SECRET;
         if (!secret || req.headers.authorization !== 'Bearer ' + secret) throw new HttpError(401, 'غير مصرّح');
         return sendJson(res, 200, await licenseSweep());
       }
-      if (url.pathname === '/api/health') return sendJson(res, 200, { ok: true, storage: storage.kind });
       const r = routes.find((x) => x.method === req.method && x.re.test(url.pathname));
       if (!r) throw new HttpError(404, 'المسار غير موجود');
       const user = await currentUser(req);
