@@ -4,6 +4,8 @@ async function route() {
   const app = document.getElementById('app');
   // إغلاق أي نافذة مفتوحة عند الانتقال لصفحة أخرى
   document.querySelectorAll('.scrim').forEach((x) => x.remove());
+  // وضع العرض الكامل خاص بالخلاصة فقط
+  if (!['feed', 'l', 'videos', ''].includes((location.hash.replace(/^#\/?/, '') || 'feed').split('/')[0])) document.body.classList.remove('clean');
   if (app._cleanup) { try { app._cleanup(); } catch { /* */ } app._cleanup = null; }
   const parts = (location.hash.replace(/^#\/?/, '') || 'feed').split('/');
   app.className = parts[0] === 'map' ? 'full' : '';

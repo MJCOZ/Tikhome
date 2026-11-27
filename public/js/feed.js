@@ -67,6 +67,13 @@ A.openDetails = function openDetails(l) {
       h('button', { class: 'btn sec sm', onclick: () => { s.close(); A.openReport(l); } }, 'إبلاغ عن الإعلان')));
 };
 
+// ====== وضع العرض الكامل (مثل الريلز): إخفاء الأيقونات والنصوص والتبويبات ======
+A.setClean = function setClean(on, item) {
+  document.body.classList.toggle('clean', on);
+  // نبقى على نفس الإعلان بعد تغيّر ارتفاع الشاشة
+  if (item) requestAnimationFrame(() => item.scrollIntoView({ block: 'start' }));
+};
+
 // ====== التفاعل بأسلوب تيك توك ======
 A.compact = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K' : String(n || 0));
 A.avatar = (name, cls = '') => h('span', { class: 'avatar ' + cls, 'aria-hidden': 'true' }, String(name || '؟').trim().charAt(0));
@@ -172,7 +179,10 @@ A.buildItem = function buildItem(l, { observe } = {}) {
     sbtn('تعليق', A.icon('chat'), (b, c) => A.openComments(l, (n) => { c.textContent = A.compact(n); }), '', l.comment_count || 0),
     sbtn('حفظ', A.icon('bookmark'), (b) => A.toggleSave(l, b), 'save' + (l.saved ? ' on' : '')),
     sbtn('الموقع', A.icon('pin'), () => { A.mapFocus = l; location.hash = '#/map'; }),
-    sbtn('مشاركة', A.icon('share'), () => A.share(l)));
+    sbtn('مشاركة', A.icon('share'), () => A.share(l)),
+    sbtn('تكبير', A.icon('expand'), () => A.setClean(true, el), 'expand'));
+  // زر الرجوع من العرض الكامل (يظهر فقط في هذا الوضع)
+  el.append(h('button', { class: 'round unclean', type: 'button', 'aria-label': 'إظهار التفاصيل والأزرار', onclick: () => A.setClean(false, el) }, A.icon('shrink')));
   if (video) el.append(h('button', { class: 'round mute', type: 'button', 'aria-label': 'تشغيل الصوت', onclick: (e) => { video.muted = !video.muted; e.currentTarget.classList.toggle('on', !video.muted); e.currentTarget.textContent = video.muted ? '🔇' : '🔊'; } }, '🔇'));
 
   const info = h('div', { class: 'info' },

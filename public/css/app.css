@@ -168,3 +168,13 @@ a{color:var(--acc-soft)}
 .pvid{position:absolute;top:6px;left:6px}
 .pvid svg{width:14px;height:14px;fill:#fff}
 .pprice{position:absolute;top:6px;right:6px;background:#000a;color:var(--gold);font-size:11px;font-weight:800;padding:2px 7px;border-radius:8px}
+
+/* ===== وضع العرض الكامل (مثل الريلز) ===== */
+.unclean{display:none}
+body.clean #tabs{display:none}
+body.clean #app{bottom:0}
+body.clean .item .side,body.clean .item .info,body.clean .item .shade,body.clean .item .mute,body.clean .topbar{opacity:0;pointer-events:none}
+body.clean .item .unclean{display:flex;position:absolute;left:12px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:3;width:42px;height:42px;background:#0006;opacity:.75}
+body.clean .item .unclean:hover{opacity:1}
+body.clean .item .dots{top:calc(20px + env(safe-area-inset-top))}
+.item .side,.item .info,.item .shade,.item .mute,.topbar{transition:opacity .2s}

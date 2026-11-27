@@ -37,7 +37,9 @@ const ICONS = {
   filter: 'M4 6h16M7 12h10M10 18h4',
   play: 'M8 5l11 7-11 7z',
   check: 'M5 12.5l4.5 4.5L19 7.5',
-  bell: 'M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 21h4'
+  bell: 'M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 21h4',
+  expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+  shrink: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5'
 };
 A.icon = function icon(name) {
   const s = document.createElementNS(SVG_NS, 'svg');
