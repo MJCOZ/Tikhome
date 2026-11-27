@@ -143,17 +143,45 @@ A.toggleSave = async function toggleSave(l, btn) {
 };
 
 // ====== بناء عنصر الإعلان ======
+// ====== الضغط مرتين للإعجاب (مثل إنستقرام) ======
+// يميّز الضغطة الواحدة عن الضغطتين؛ الضغطة الواحدة تُنفَّذ بعد مهلة قصيرة إن لم تتبعها ثانية
+function onTaps(target, single, double) {
+  let last = 0; let timer = null;
+  target.addEventListener('click', (e) => {
+    const now = Date.now();
+    if (now - last < 300) { clearTimeout(timer); last = 0; double(e); return; }
+    last = now;
+    if (single) timer = setTimeout(() => single(e), 280);
+  });
+}
+function heartBurst(item, e) {
+  const r = item.getBoundingClientRect();
+  const x = (e && e.clientX ? e.clientX : r.left + r.width / 2) - r.left;
+  const y = (e && e.clientY ? e.clientY : r.top + r.height / 2) - r.top;
+  const heart = h('div', { class: 'burst', style: { left: x + 'px', top: y + 'px' } }, A.icon('heart'));
+  heart.style.setProperty('--rot', (Math.random() * 30 - 15).toFixed(0) + 'deg');
+  item.append(heart);
+  heart.addEventListener('animationend', () => heart.remove());
+}
+
 A.buildItem = function buildItem(l, { observe } = {}) {
   const el = h('section', { class: 'item', 'data-id': l.id, 'aria-label': `${l.title} ${l.district}` });
   let video = null;
+  // الإعجاب بالضغط مرتين: يُظهر القلب دائماً، ولا يلغي إعجاباً سابقاً
+  const doubleLike = (e) => {
+    if (!A.user) { A.requireLogin('سجّل الدخول للإعجاب بالعقار'); return; }
+    heartBurst(el, e);
+    if (l.liked) return;
+    const b = el.querySelector('.sbtn.like'); if (b) A.toggleLike(l, b, b.querySelector('small'));
+  };
   if (l.media_type === 'video' && l.media[0]) {
     video = h('video', { src: l.media[0].url, poster: l.media[0].poster || null, loop: true, muted: true, playsinline: true, preload: 'metadata', 'aria-label': 'فيديو العقار' });
     video.muted = true;
     const hint = h('div', { class: 'playhint' }, A.icon('play'));
     hint.firstChild.style.cssText = 'width:32px;height:32px;fill:#fff';
-    video.addEventListener('click', () => {
+    onTaps(video, () => {
       if (video.paused) { video.play(); hint.classList.remove('show'); } else { video.pause(); hint.classList.add('show'); }
-    });
+    }, doubleLike);
     el.append(video, hint);
   } else if (l.media.length) {
     const dots = h('div', { class: 'dots' }, l.media.map((_, i) => h('i', { class: i === 0 ? 'on' : '' })));
@@ -162,8 +190,9 @@ A.buildItem = function buildItem(l, { observe } = {}) {
       const i = Math.round(Math.abs(car.scrollLeft) / car.clientWidth);
       [...dots.children].forEach((d, j) => d.classList.toggle('on', i === j));
     }, { passive: true });
+    onTaps(car, null, doubleLike);
     el.append(car, dots);
-  } else el.append(h('div', { class: 'ph' }));
+  } else { const ph = h('div', { class: 'ph' }); onTaps(ph, null, doubleLike); el.append(ph); }
   el.append(h('div', { class: 'shade' }));
 
   const sbtn = (label, icon, onclick, cls = '', count = null) => {
@@ -179,8 +208,8 @@ A.buildItem = function buildItem(l, { observe } = {}) {
     sbtn('تعليق', A.icon('chat'), (b, c) => A.openComments(l, (n) => { c.textContent = A.compact(n); }), '', l.comment_count || 0),
     sbtn('حفظ', A.icon('bookmark'), (b) => A.toggleSave(l, b), 'save' + (l.saved ? ' on' : '')),
     sbtn('الموقع', A.icon('pin'), () => { A.mapFocus = l; location.hash = '#/map'; }),
-    sbtn('مشاركة', A.icon('share'), () => A.share(l)),
-    sbtn('تكبير', A.icon('expand'), () => A.setClean(true, el), 'expand'));
+    sbtn('مشاركة', A.icon('share'), () => A.share(l)));
+  el.append(h('button', { class: 'round expand', type: 'button', 'aria-label': 'عرض بملء الشاشة', title: 'عرض بملء الشاشة', onclick: () => A.setClean(true, el) }, A.icon('expand')));
   // زر الرجوع من العرض الكامل (يظهر فقط في هذا الوضع)
   el.append(h('button', { class: 'round unclean', type: 'button', 'aria-label': 'إظهار التفاصيل والأزرار', onclick: () => A.setClean(false, el) }, A.icon('shrink')));
   if (video) el.append(h('button', { class: 'round mute', type: 'button', 'aria-label': 'تشغيل الصوت', onclick: (e) => { video.muted = !video.muted; e.currentTarget.classList.toggle('on', !video.muted); e.currentTarget.textContent = video.muted ? '🔇' : '🔊'; } }, '🔇'));

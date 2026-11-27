@@ -178,3 +178,29 @@ body.clean .item .unclean{display:flex;position:absolute;left:12px;bottom:calc(1
 body.clean .item .unclean:hover{opacity:1}
 body.clean .item .dots{top:calc(20px + env(safe-area-inset-top))}
 .item .side,.item .info,.item .shade,.item .mute,.topbar{transition:opacity .2s}
+
+/* ===== قلب الإعجاب بالضغط مرتين ===== */
+.item{touch-action:manipulation;-webkit-user-select:none;user-select:none}
+.burst{position:absolute;z-index:4;width:110px;height:110px;margin:-55px 0 0 -55px;pointer-events:none;animation:burst .85s ease-out forwards}
+.burst svg{width:100%;height:100%;fill:#ff3b5c;stroke:#ff3b5c;filter:drop-shadow(0 4px 14px #0007)}
+@keyframes burst{
+  0%{transform:scale(0) rotate(var(--rot));opacity:0}
+  15%{transform:scale(1.25) rotate(var(--rot));opacity:1}
+  30%{transform:scale(.95) rotate(var(--rot))}
+  45%{transform:scale(1.05) rotate(var(--rot))}
+  75%{transform:scale(1) translateY(-10px) rotate(var(--rot));opacity:1}
+  100%{transform:scale(1.1) translateY(-60px) rotate(var(--rot));opacity:0}
+}
+@media (prefers-reduced-motion:reduce){.burst{animation-duration:.4s}}
+
+/* زر التكبير أعلى الشاشة تحت التصفية، وزر الصوت تحته */
+.item .expand{position:absolute;top:calc(64px + env(safe-area-inset-top));left:12px;z-index:2;width:40px;height:40px;transition:opacity .2s}
+.item .expand svg{width:20px;height:20px}
+.mute{top:calc(112px + env(safe-area-inset-top))}
+body.clean .item .expand{opacity:0;pointer-events:none}
+/* عمود جانبي مضغوط يبدأ من الأسفل (النصوص يمين الشاشة لا تتقاطع معه) */
+.side{bottom:calc(14px);gap:4px}
+.sbtn .round{width:40px;height:40px}
+.sbtn .round svg{width:22px;height:22px}
+.avatar.lg{width:42px;height:42px;font-size:18px}
+.sbtn small{font-size:10.5px;min-height:13px}
