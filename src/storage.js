@@ -13,7 +13,9 @@ const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'vid
 function supabaseStorage({ url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY, maxBytes } = {}) {
   if (!url || !key) throw new Error('SUPABASE_URL و SUPABASE_SECRET_KEY مطلوبة للتخزين');
   const base = url.replace(/\/+$/, '') + '/storage/v1';
-  const headers = { apikey: key, Authorization: 'Bearer ' + key };
+  // المفاتيح الجديدة (sb_secret_...) ليست JWT: تُرسل في apikey فقط وبوابة Supabase تتولى التفويض.
+  // المفاتيح القديمة (service_role بصيغة JWT) تُرسل في الاثنين.
+  const headers = key.startsWith('sb_') ? { apikey: key } : { apikey: key, Authorization: 'Bearer ' + key };
   const enc = (p) => p.split('/').map(encodeURIComponent).join('/');
   let bucketReady = null;
 
