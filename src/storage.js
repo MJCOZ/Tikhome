@@ -10,24 +10,50 @@ const crypto = require('node:crypto');
 const BUCKET = process.env.SUPABASE_BUCKET || 'media';
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'video/quicktime'];
 
-function supabaseStorage({ url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY, maxBytes } = {}) {
+function supabaseStorage({ url = process.env.SUPABASE_URL, key, maxBytes } = {}) {
+  // المفتاح القديم service_role (JWT يبدأ بـ eyJ) هو الأضمن مع Storage؛ وإلا نستخدم المفتاح السري الجديد
+  const legacy = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  key = key || (legacy && legacy.startsWith('eyJ') ? legacy : process.env.SUPABASE_SECRET_KEY || legacy);
   if (!url || !key) throw new Error('SUPABASE_URL و SUPABASE_SECRET_KEY مطلوبة للتخزين');
   const base = url.replace(/\/+$/, '') + '/storage/v1';
-  // المفاتيح الجديدة (sb_secret_...) ليست JWT: تُرسل في apikey فقط وبوابة Supabase تتولى التفويض.
-  // المفاتيح القديمة (service_role بصيغة JWT) تُرسل في الاثنين.
-  const headers = key.startsWith('sb_') ? { apikey: key } : { apikey: key, Authorization: 'Bearer ' + key };
+  // طريقة إرسال المفتاح تختلف بين المفاتيح الجديدة (sb_secret_) والقديمة (JWT) وما زالت غير موحّدة،
+  // فنجرّب الطرق بالترتيب ونتذكر أول طريقة تنجح.
+  const modes = key.startsWith('sb_')
+    ? [{ apikey: key }, { apikey: key, Authorization: 'Bearer ' + key }]
+    : [{ apikey: key, Authorization: 'Bearer ' + key }];
+  let mode = 0;
+  const authError = async (r) => {
+    if (r.status !== 400 && r.status !== 401 && r.status !== 403) return false;
+    const t = await r.clone().text().catch(() => '');
+    return /jws|jwt|authorization|apikey|invalid.*key|unauthori/i.test(t);
+  };
+  async function sfetch(path, init = {}) {
+    let r;
+    for (let i = mode; i < modes.length; i++) {
+      r = await fetch(base + path, { ...init, headers: { ...modes[i], ...(init.headers || {}) } });
+      if (i < modes.length - 1 && await authError(r)) continue;
+      mode = i;
+      return r;
+    }
+    return r;
+  }
   const enc = (p) => p.split('/').map(encodeURIComponent).join('/');
   let bucketReady = null;
 
   async function ensureBucket() {
-    const body = { id: BUCKET, name: BUCKET, public: true, file_size_limit: maxBytes, allowed_mime_types: ALLOWED_MIME };
-    const r = await fetch(`${base}/bucket/${BUCKET}`, { headers });
+    const body = JSON.stringify({ id: BUCKET, name: BUCKET, public: true, file_size_limit: maxBytes, allowed_mime_types: ALLOWED_MIME });
+    const json = { 'Content-Type': 'application/json' };
+    const r = await sfetch(`/bucket/${BUCKET}`);
     if (r.ok) {
-      await fetch(`${base}/bucket/${BUCKET}`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      await sfetch(`/bucket/${BUCKET}`, { method: 'PUT', headers: json, body });
       return;
     }
-    const c = await fetch(`${base}/bucket`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (!c.ok && c.status !== 409) throw new Error('تعذّر إنشاء حاوية التخزين: ' + (await c.text()));
+    const c = await sfetch('/bucket', { method: 'POST', headers: json, body });
+    if (!c.ok && c.status !== 409) {
+      const t = await c.text();
+      const hint = /jws|jwt/i.test(t) ? ' — أضف مفتاح service_role القديم في Vercel باسم SUPABASE_SERVICE_ROLE_KEY' : '';
+      throw new Error(`تعذّر إنشاء حاوية التخزين (${key.startsWith('sb_') ? 'مفتاح جديد' : 'مفتاح JWT'}): ${t.slice(0, 200)}${hint}`);
+    }
   }
 
   return {
@@ -36,14 +62,14 @@ function supabaseStorage({ url = process.env.SUPABASE_URL, key = process.env.SUP
     publicUrl: (p) => `${base}/object/public/${BUCKET}/${enc(p)}`,
     // رابط رفع موقّع (صالح ساعتين) يستخدمه العميل بطلب PUT
     async signUpload(p) {
-      const r = await fetch(`${base}/object/upload/sign/${BUCKET}/${enc(p)}`, { method: 'POST', headers });
+      const r = await sfetch(`/object/upload/sign/${BUCKET}/${enc(p)}`, { method: 'POST' });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.url) throw new Error('تعذّر تجهيز رابط الرفع');
       return { upload_url: base + d.url, method: 'PUT' };
     },
     // يقرأ أول بايتات الملف وحجمه للتحقق من نوعه الحقيقي
     async head(p) {
-      const r = await fetch(`${base}/object/authenticated/${BUCKET}/${enc(p)}`, { headers: { ...headers, Range: 'bytes=0-15' } });
+      const r = await sfetch(`/object/authenticated/${BUCKET}/${enc(p)}`, { headers: { Range: 'bytes=0-15' } });
       if (!r.ok) return null;
       const buf = Buffer.from(await r.arrayBuffer()).subarray(0, 16);
       const cr = /\/(\d+)$/.exec(r.headers.get('content-range') || '');
@@ -52,7 +78,7 @@ function supabaseStorage({ url = process.env.SUPABASE_URL, key = process.env.SUP
     },
     async remove(paths) {
       if (!paths.length) return;
-      await fetch(`${base}/object/${BUCKET}`, { method: 'DELETE', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: paths }) }).catch(() => {});
+      await sfetch(`/object/${BUCKET}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: paths }) }).catch(() => {});
     }
   };
 }
