@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
@@ -78,7 +78,10 @@ export default function MapScreen() {
             <T style={{ fontWeight: '700', fontSize: 16 }} numberOfLines={2}>{`${selected.title} · ${selected.district}`}</T>
             <T style={{ color: C.mute2, fontSize: 13 }}>{[floorLabel(selected.floor), entranceLabel(selected.entrance)].filter(Boolean).join(' · ')}</T>
             <T style={{ color: C.gold, fontWeight: '800', fontSize: 18 }}>{fmtPrice(selected)}</T>
-            <Btn small title="شاهد العقار" onPress={() => router.push(`/listing/${selected.id}`)} />
+            <View style={[row, { gap: 8 }]}>
+              <Btn small title="شاهد العقار" onPress={() => router.push(`/listing/${selected.id}`)} style={{ flex: 1 }} />
+              {selected.lat != null ? <Btn small kind="sec" title="Google Maps" onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${selected.lat},${selected.lng}`)} /> : null}
+            </View>
           </View>
         </View>
       ) : null}

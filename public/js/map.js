@@ -23,7 +23,7 @@ A.renderMap = function renderMap(app) {
 
   const focus = A.mapFocus; A.mapFocus = null;
   const map = L.map('map', { zoomControl: false }).setView(focus && focus.lat ? [focus.lat, focus.lng] : [24.7136, 46.6753], focus && focus.lat ? 15 : 11);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  A.addBaseLayers(map);
   const layer = L.layerGroup().addTo(map);
   let selected = focus ? focus.id : null; let data = [];
 
@@ -35,7 +35,9 @@ A.renderMap = function renderMap(app) {
         h('div', { style: { fontWeight: 700, fontSize: '16px' } }, `${l.title} · ${l.district}`),
         h('div', { class: 'muted' }, [A.floorLabel(l.floor), A.entranceLabel(l.entrance)].filter(Boolean).join(' · ')),
         h('div', { class: 'price', style: { fontSize: '18px' } }, A.fmtPrice(l)),
-        h('button', { class: 'btn sm', onclick: () => { location.hash = '#/l/' + l.id; } }, 'شاهد العقار'))));
+        h('div', { class: 'row' },
+          h('button', { class: 'btn sm', onclick: () => { location.hash = '#/l/' + l.id; } }, 'شاهد العقار'),
+          l.lat != null ? h('a', { class: 'btn sec sm', href: A.googleMapsUrl(l), target: '_blank', rel: 'noopener' }, 'افتح في Google Maps') : null))));
   }
   function draw() {
     layer.clearLayers();

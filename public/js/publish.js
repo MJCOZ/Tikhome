@@ -52,7 +52,7 @@ A.renderPublish = function renderPublish(app) {
   setTimeout(() => {
     if (typeof L === 'undefined') { mapBox.append(h('div', { class: 'empty', style: { position: 'static', height: '100%' } }, 'الخريطة غير متاحة الآن')); return; }
     mini = L.map(mapBox, { zoomControl: true }).setView([24.7136, 46.6753], 11);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(mini);
+    A.addBaseLayers(mini);
     mini.on('click', (e) => setPoint(e.latlng.lat, e.latlng.lng));
     app._cleanup = () => mini.remove();
   }, 0);

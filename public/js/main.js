@@ -4,15 +4,12 @@ async function route() {
   const app = document.getElementById('app');
   if (app._cleanup) { try { app._cleanup(); } catch { /* */ } app._cleanup = null; }
   const parts = (location.hash.replace(/^#\/?/, '') || 'feed').split('/');
-  const wide = A.wide();
-  document.body.classList.toggle('wide', wide);
-  app.className = parts[0] === 'videos' || (!wide && ['feed', 'l'].includes(parts[0])) ? 'videos' : '';
+  app.className = parts[0] === 'map' ? 'full' : '';
   A.renderTabs();
   switch (parts[0]) {
-    case 'feed': return wide ? A.renderExplore(app) : A.renderFeed(app);
-    case 'l': return wide ? A.renderExplore(app, Number(parts[1]) || null) : A.renderFeed(app, Number(parts[1]) || null);
-    case 'map': return wide ? A.renderExplore(app) : A.renderMap(app);
-    case 'videos': return A.renderFeed(app);
+    case 'feed': return A.renderFeed(app);
+    case 'l': return A.renderFeed(app, Number(parts[1]) || null);
+    case 'map': return A.renderMap(app);
     case 'publish': return A.renderPublish(app);
     case 'saved': return A.renderSaved(app);
     case 'me': return A.renderMe(app);
@@ -21,8 +18,6 @@ async function route() {
   }
 }
 window.addEventListener('hashchange', route);
-// إعادة الرسم عند تدوير الآيباد أو تغيير حجم النافذة بين الجوال والشاشة الكبيرة
-A.wideQuery.addEventListener('change', () => route());
 (async () => {
   try { A.config = await A.api('/api/config'); } catch { /* القيم الافتراضية */ }
   await A.refreshMe();
