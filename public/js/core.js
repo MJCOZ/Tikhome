@@ -160,11 +160,19 @@ A.share = async function share(l) {
 
 // ====== طبقات الخريطة: شوارع بأسلوب قريب من خرائط Google + قمر صناعي ======
 A.addBaseLayers = function addBaseLayers(map) {
-  const streets = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    subdomains: 'abcd', maxZoom: 20, attribution: '© OpenStreetMap © CARTO' });
-  const satellite = L.layerGroup([
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: '© Esri' }),
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 20 })]);
+  // شوارع: OpenStreetMap مجانية وبدون مفتاح، وأسماء الأماكن بالعربي في السعودية
+  const streets = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
+  const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: '© Esri' });
+  const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+  const satellite = L.layerGroup([sat, labels]);
+  // إذا رفض مزوّد القمر الصناعي الطلبات نرجع للخريطة العادية برسالة واضحة
+  let errors = 0;
+  sat.on('tileerror', () => {
+    if (++errors !== 4) return;
+    A.toast('صور القمر الصناعي غير متاحة حالياً');
+    map.removeLayer(satellite); streets.addTo(map);
+  });
+  satellite.on('add', () => { errors = 0; });
   streets.addTo(map);
   L.control.layers({ 'خريطة': streets, 'قمر صناعي': satellite }, null, { position: 'bottomright' }).addTo(map);
   return { streets, satellite };
