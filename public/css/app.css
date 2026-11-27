@@ -113,3 +113,11 @@ a{color:var(--acc-soft)}
   .scrim{align-items:center}
   .sheet{border-radius:20px;padding-bottom:24px}
 }
+
+/* وضع التطبيق على الشاشة الرئيسية (PWA): مساحة للنتوء وشريط الإيماءات في الآيفون */
+#app{bottom:calc(var(--nav) + env(safe-area-inset-bottom))}
+#tabs{height:calc(var(--nav) + env(safe-area-inset-bottom))}
+.topbar,.maptop{top:calc(12px + env(safe-area-inset-top))}
+.dots{top:calc(84px + env(safe-area-inset-top))}
+.page{padding-top:calc(20px + env(safe-area-inset-top))}
+#toast{top:calc(16px + env(safe-area-inset-top))}
