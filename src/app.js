@@ -407,7 +407,7 @@ function createApp({ db, storage, moyasar = null }) {
     const v = validateListing(ctx.body);
     const plan = await currentPlan(ctx.user.id);
     const used = await db.n("SELECT COUNT(*) FROM listings WHERE owner_id = ? AND status NOT IN ('rejected','expired')", ctx.user.id);
-    if (plan && used >= plan.max_listings) throw new HttpError(403, `وصلت الحد الأقصى لباقتك (${plan.max_listings} إعلان). رقِّ باقتك لإضافة المزيد.`);
+    if (plan && ctx.user.role !== 'admin' && used >= plan.max_listings) throw new HttpError(403, `وصلت الحد الأقصى لباقتك (${plan.max_listings} إعلان). رقِّ باقتك لإضافة المزيد.`);
     const cols = Object.keys(v);
     const l = await db.one(`INSERT INTO listings (owner_id, status, ${cols.join(', ')}) VALUES (?, 'draft', ${cols.map(() => '?').join(', ')}) RETURNING *`, ctx.user.id, ...cols.map((c) => v[c]));
     ctx.json(201, { listing: await serializeOne(l, ctx.user, { owner: true }) });

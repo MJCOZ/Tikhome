@@ -37,7 +37,8 @@ const ICONS = {
   filter: 'M4 6h16M7 12h10M10 18h4',
   play: 'M8 5l11 7-11 7z',
   check: 'M5 12.5l4.5 4.5L19 7.5',
-  bell: 'M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 21h4'
+  bell: 'M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 21h4',
+  search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4'
 };
 A.icon = function icon(name) {
   const s = document.createElementNS(SVG_NS, 'svg');
@@ -158,13 +159,46 @@ A.share = async function share(l) {
   } catch { /* أُلغيت المشاركة */ }
 };
 
+// الشاشات الكبيرة (آيباد/كمبيوتر) تأخذ تصميماً كاملاً بأسلوب الخرائط
+A.wideQuery = window.matchMedia('(min-width: 768px)');
+A.wide = () => A.wideQuery.matches;
+
+// ====== الشريط العلوي للشاشات الكبيرة ======
+A.renderTopNav = function renderTopNav(nav, cur) {
+  nav.className = 'topnav';
+  const search = h('input', { id: 'hsearch', type: 'search', placeholder: 'ابحث عن حي أو مدينة أو نوع عقار', value: A.filters.q || '', 'aria-label': 'بحث', maxlength: 50 });
+  const form = h('form', { class: 'hsearch', role: 'search' }, A.icon('search'), search);
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = search.value.trim();
+    if (q) A.filters.q = q; else delete A.filters.q;
+    if (['feed', 'l', 'map'].includes(cur)) window.dispatchEvent(new Event('tk-search'));
+    else location.hash = '#/feed';
+  });
+  const link = (key, label, ic) => {
+    const on = cur === key || (key === 'feed' && (cur === 'l' || cur === 'map')) || (key === 'me' && cur === 'login');
+    return h('button', { class: 'tlink' + (on ? ' on' : ''), type: 'button', 'aria-current': on ? 'page' : null, onclick: () => (location.hash = '#/' + key) },
+      ic ? A.icon(ic) : null, label, key === 'me' && A.unread ? h('span', { class: 'badge-dot' }, A.unread) : null);
+  };
+  nav.replaceChildren(
+    h('button', { class: 'brand', type: 'button', onclick: () => (location.hash = '#/feed'), 'aria-label': 'الصفحة الرئيسية' }, h('span', { class: 'logo' }, 'T'), 'Tikhome'),
+    form,
+    h('div', { class: 'tlinks' },
+      link('feed', 'استكشف', 'map'), link('videos', 'فيديو', 'play'), link('saved', 'المحفوظات', 'bookmark'),
+      A.user && A.user.role === 'admin' ? h('a', { class: 'tlink', href: '/admin' }, 'لوحة التحكم') : null,
+      link('me', A.user ? A.user.name : 'دخول', 'user'),
+      h('button', { class: 'btn sm', type: 'button', onclick: () => (location.hash = '#/publish') }, A.icon('plus'), 'أضف عقارك')));
+};
+
 // ====== الشريط السفلي ======
 A.renderTabs = function renderTabs() {
   const cur = (location.hash.replace(/^#\/?/, '').split('/')[0]) || 'feed';
+  if (A.wide()) return A.renderTopNav(document.getElementById('tabs'), cur);
+  document.getElementById('tabs').className = '';
   const defs = [['feed', 'الرئيسية', 'home'], ['map', 'الخريطة', 'map'], ['publish', 'نشر', 'plus'], ['saved', 'المحفوظات', 'bookmark'], ['me', A.user ? 'حسابي' : 'دخول', 'user']];
   const nav = document.getElementById('tabs'); nav.replaceChildren();
   for (const [key, label, ic] of defs) {
-    const on = cur === key || (key === 'feed' && cur === 'l');
+    const on = cur === key || (key === 'feed' && (cur === 'l' || cur === 'videos'));
     nav.append(h('button', { class: on ? 'on' : '', 'aria-label': label, 'aria-current': on ? 'page' : null, onclick: () => (location.hash = '#/' + key) },
       A.icon(ic), label, key === 'me' && A.unread ? h('span', { class: 'badge-dot' }, A.unread) : null));
   }
